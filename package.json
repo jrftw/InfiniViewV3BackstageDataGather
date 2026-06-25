@@ -1,0 +1,43 @@
+{
+  "name": "infiniview-v3-backstage-gatherer",
+  "version": "1.0.0",
+  "description": "InfiniView V3 Backstage Gatherer — automated export, merge, and Google output",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "login": "tsx src/backstage/loginOnce.ts",
+    "login:test": "tsx src/backstage/backstageLoginTest.ts",
+    "login:test:headed": "powershell -NoProfile -Command \"$env:BACKSTAGE_HEADLESS='false'; $env:HEADLESS='false'; npx tsx src/backstage/backstageLoginTest.ts\"",
+    "gather": "tsx src/jobs/runGathererJob.ts",
+    "enrich": "tsx src/jobs/runEnrichmentJob.ts",
+    "gather:visible": "powershell -NoProfile -Command \"$env:BACKSTAGE_HEADLESS='false'; $env:BACKSTAGE_SLOW_MO_MS='75'; $env:GATHERER_FRIENDLY_LOGS='true'; npx tsx src/jobs/runGathererJob.ts\"",
+    "preflight": "tsx src/jobs/runPreflightCheck.ts",
+    "preflight:check": "powershell -NoProfile -Command \"$env:GATHERER_FRIENDLY_LOGS='true'; npx tsx src/jobs/runPreflightCheck.ts\"",
+    "postinstall": "playwright install chromium"
+  },
+  "keywords": ["backstage", "gatherer", "infiniview"],
+  "author": "Kevin Doyle Jr. / Infinitum Imagery LLC",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "node-cron": "^3.0.3",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "playwright": "^1.50.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.4",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

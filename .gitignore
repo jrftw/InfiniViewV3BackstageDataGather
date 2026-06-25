@@ -1,0 +1,20 @@
+# InfiniView V3 Backstage Gatherer — git excludes
+# Google service account keys — NEVER commit
+Plan/infiniview-backstage-gatherer*.json
+**/infiniview-backstage-gatherer*.json
+
+node_modules/
+dist/
+.env
+data/auth/
+data/downloads/*
+data/raw/*
+data/processed/*
+data/logs/*
+cache/creators/**
+!cache/**/.gitkeep
+data/temp/*
+!data/**/.gitkeep
+.server.pid
+.update-lock
+*.log

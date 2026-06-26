@@ -2,9 +2,116 @@
  * Filename: dates.ts
  * Purpose: Date/time helpers for run IDs and folder naming.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-25
  * Platform Compatibility: Node.js 18+
  */
+
+// MARK: - Timezone Parts
+
+export interface GathererZonedDateParts {
+  year: string;
+  month: string;
+  day: string;
+  hour: number;
+  minute: number;
+}
+
+export function gathererGetZonedDateParts(
+  timezone: string,
+  date: Date = new Date()
+): GathererZonedDateParts {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const read = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+
+  return {
+    year: read("year"),
+    month: read("month"),
+    day: read("day"),
+    hour: Number.parseInt(read("hour"), 10),
+    minute: Number.parseInt(read("minute"), 10),
+  };
+}
+
+function gathererCalendarKeyFromParts(parts: Pick<GathererZonedDateParts, "year" | "month" | "day">): string {
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function gathererShiftCalendarKeyByDays(calendarKey: string, dayDelta: number): string {
+  const [yearText, monthText, dayText] = calendarKey.split("-");
+  const shifted = new Date(
+    Date.UTC(Number.parseInt(yearText, 10), Number.parseInt(monthText, 10) - 1, Number.parseInt(dayText, 10))
+  );
+  shifted.setUTCDate(shifted.getUTCDate() + dayDelta);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function gathererParseCutoffTimeToMinutes(cutoffTime: string): number {
+  const [hourText, minuteText] = cutoffTime.split(":");
+  const hour = Number.parseInt(hourText, 10);
+  const minute = Number.parseInt(minuteText ?? "0", 10);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    throw new Error(`Invalid daily cutoff time: ${cutoffTime}`);
+  }
+  return hour * 60 + minute;
+}
+
+// MARK: - Business Day (8PM America/New_York cutoff)
+
+/**
+ * Operating business day label. Each day runs 8:00 PM ET → next 7:59 PM ET.
+ * Uses America/New_York so EST/EDT (and UTC offset) change automatically.
+ * During EDT, 8:00 PM Eastern = midnight UTC.
+ */
+export function gathererFormatBusinessDateKey(
+  timezone: string,
+  dailyCutoffTime: string,
+  date: Date = new Date()
+): string {
+  const parts = gathererGetZonedDateParts(timezone, date);
+  const calendarKey = gathererCalendarKeyFromParts(parts);
+  const nowMinutes = parts.hour * 60 + parts.minute;
+  const cutoffMinutes = gathererParseCutoffTimeToMinutes(dailyCutoffTime);
+
+  if (nowMinutes >= cutoffMinutes) {
+    return gathererShiftCalendarKeyByDays(calendarKey, 1);
+  }
+
+  return calendarKey;
+}
+
+/**
+ * Label for the business day that closes at the current cutoff moment.
+ * Used for the 8 PM daily archive (last pull of the day).
+ */
+export function gathererFormatClosingBusinessDateKey(
+  timezone: string,
+  dailyCutoffTime: string,
+  date: Date = new Date()
+): string {
+  const parts = gathererGetZonedDateParts(timezone, date);
+  const calendarKey = gathererCalendarKeyFromParts(parts);
+  const nowMinutes = parts.hour * 60 + parts.minute;
+  const cutoffMinutes = gathererParseCutoffTimeToMinutes(dailyCutoffTime);
+
+  if (nowMinutes >= cutoffMinutes) {
+    return calendarKey;
+  }
+
+  return gathererShiftCalendarKeyByDays(calendarKey, -1);
+}
 
 // MARK: - Run Timestamp Helpers
 

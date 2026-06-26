@@ -24,6 +24,10 @@ import {
   isGathererFriendlyLoggingEnabled,
 } from "../logging/friendlyLog";
 import { logInfo, logWarn, logError } from "../logging/logger";
+import {
+  gathererFormatBusinessDateKey,
+  gathererFormatClosingBusinessDateKey,
+} from "../utils/dates";
 
 // MARK: - Types
 
@@ -95,11 +99,28 @@ export async function runGathererPreflightCheck(
     blocking: nodeMajor < 18,
   });
 
+  const businessDayKey = gathererFormatBusinessDateKey(
+    config.timezone,
+    config.gathererDailyArchiveTime
+  );
+  const scheduleSummary =
+    config.gathererScheduleMode === "random"
+      ? `random ~${config.gathererRunsPerDay}/day ${config.gathererActiveHoursStart}-${config.gathererActiveHoursEnd}`
+      : config.runSchedules.join(", ");
+
   preflightAddCheck(checks, {
     id: "timezone",
     label: "Timezone",
     status: "pass",
-    message: `${config.timezone} (schedules: ${config.runSchedules.join(", ")})`,
+    message: `${config.timezone} (${scheduleSummary})`,
+    blocking: false,
+  });
+
+  preflightAddCheck(checks, {
+    id: "business_day_cutoff",
+    label: "Business day cutoff",
+    status: "pass",
+    message: `${config.gathererDailyArchiveTime} ${config.timezone} (today: ${businessDayKey}; closes ${gathererFormatClosingBusinessDateKey(config.timezone, config.gathererDailyArchiveTime)})`,
     blocking: false,
   });
 

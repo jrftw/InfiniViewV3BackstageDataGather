@@ -13,6 +13,7 @@ import { gathererFormatRunTimestamp, gathererGenerateRunId } from "../utils/date
 import { gathererEnsureDir } from "../utils/files";
 import { runBackstageExports } from "../backstage/backstageExportRunner";
 import { runGathererProcessPipeline } from "./gathererProcessPipeline";
+import { runProfileAcquirerJob } from "./runProfileAcquirerJob";
 import { buildImportSummary } from "../logging/importSummary";
 import { cleanupOldLocalGathererFiles } from "./cleanupOldLocalFiles";
 import {
@@ -93,6 +94,9 @@ export async function runGathererJob(
     "runGathererJob"
   );
 
+  let jobResult: GathererJobResult = { success: false, errors: [] };
+  let shouldChainProfileAcquirer = false;
+
   try {
     gathererLogSection("Backstage browser exports");
     gathererLogProgress(1, 5, "Exporting management + performance reports from Backstage");
@@ -150,11 +154,13 @@ export async function runGathererJob(
       `${creators.length} creators → ${runContext.dailySheetTabName}`
     );
 
-    return {
+    jobResult = {
       success: true,
       summaryPath: pipelineResult.summaryPath,
       errors: [],
     };
+    shouldChainProfileAcquirer =
+      config.profileAcquirerEnabled && config.profileAcquirerRunAfterBackstage;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     errors.push(message);
@@ -186,10 +192,24 @@ export async function runGathererJob(
     });
 
     setGathererLastSummary(failedSummary);
-    return { success: false, errors };
+    jobResult = { success: false, errors };
   } finally {
     releaseGathererRunLock();
   }
+
+  if (shouldChainProfileAcquirer) {
+    gathererLogSection("TikTok Public Profile Acquirer (optional chain)");
+    gathererLogInfo(
+      "Chaining profile acquirer",
+      "post_backstage · new creators only when GATHERER_PROFILE_ACQUIRER_AFTER_BACKSTAGE_NEW_ONLY=true"
+    );
+    const profileResult = await runProfileAcquirerJob({ trigger: "post_backstage" });
+    if (!profileResult.success && profileResult.errors.length > 0) {
+      gathererLogWarn("Profile acquirer chain", profileResult.errors.join("; "));
+    }
+  }
+
+  return jobResult;
 }
 
 // MARK: - CLI Entry

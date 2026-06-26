@@ -195,5 +195,12 @@ export function sheetDataCreatorsToValues(
   return values;
 }
 
+export function sheetDataCreatorToRowValues(
+  creator: CombinedCreatorRecord,
+  headers: (keyof CombinedCreatorRecord)[]
+): string[] {
+  return headers.map((header) => sheetDataFormatCreatorCellValue(header, creator[header]));
+}
+
 // Suggestions For Features and Additions Later:
 // - Per-tab column order overrides via config

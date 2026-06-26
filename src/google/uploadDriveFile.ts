@@ -29,7 +29,7 @@ const driveFolderCache = new Map<string, string>();
 
 // MARK: - Legacy Folder Helpers
 
-async function ensureDriveSubfolder(
+export async function gathererDriveEnsureSubfolder(
   config: GathererConfig,
   parentId: string,
   folderName: string
@@ -137,8 +137,8 @@ export async function uploadFileToGoogleDrive(
   const dateFolder = gathererFormatDateFolder();
   const rootId = config.googleDriveFolderId;
 
-  const categoryFolderId = await ensureDriveSubfolder(config, rootId, driveCategory);
-  const dateFolderId = await ensureDriveSubfolder(config, categoryFolderId, dateFolder);
+  const categoryFolderId = await gathererDriveEnsureSubfolder(config, rootId, driveCategory);
+  const dateFolderId = await gathererDriveEnsureSubfolder(config, categoryFolderId, dateFolder);
 
   return upsertFileInDriveFolder(config, localFilePath, dateFolderId);
 }

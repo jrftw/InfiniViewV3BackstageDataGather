@@ -16,6 +16,7 @@ import { ImportSummaryData } from "../logging/importSummary";
 import { GathererRunContext } from "../jobs/gathererRunContext";
 import { freezeGoogleSheetHeaderRow } from "./sheetFreezeHeaders";
 import { ensureGathererSyncSheetTabs, appendGathererSyncLogRow, SyncLogAppendRow } from "./syncSheetTabs";
+import { publishMasterCreatorsTabIncremental } from "./masterSheetIncrementalPublish";
 import { logInfo } from "../logging/logger";
 
 // MARK: - Tab Names
@@ -182,8 +183,14 @@ export async function updateGoogleSheetTabs(
   await ensureGathererSyncSheetTabs(config);
 
   const creatorValues = sheetDataCreatorsToValues(creators);
+  const masterPublishResult = await publishMasterCreatorsTabIncremental(config, creators);
 
-  await overwriteSheetTab(config, SHEET_TABS.latestMaster, creatorValues);
+  if (masterPublishResult.skippedNoChanges) {
+    logInfo(
+      `Skipped master tab rewrite — ${masterPublishResult.rowsUnchanged} creators unchanged`,
+      "updateSheetTabs"
+    );
+  }
 
   if (config.gathererUpdateMasterDailyTab) {
     await overwriteSheetTab(config, runContext.dailySheetTabName, creatorValues);

@@ -41,6 +41,10 @@ export interface GathererConfig {
   backstageAuthStatePath: string;
   googleServiceAccountEmail: string;
   googleServiceAccountPrivateKey: string;
+  /** Workspace user to impersonate via domain-wide delegation (My Drive upload quota). */
+  googleDelegatedUser: string;
+  /** Comma-separated OAuth scopes for delegated auth (optional — sensible defaults apply). */
+  googleScopes: string[];
   googleDriveFolderId: string;
   googleDriveDailyArchiveFolderId: string;
   googleMasterSheetId: string;
@@ -85,6 +89,16 @@ export interface GathererConfig {
   gathererRequireEffectiveRelationship: boolean;
   gathererExcludeGraduationStatuses: string[];
   gathererUpdateMasterDailyTab: boolean;
+  gathererMasterSheetIncrementalUpdates: boolean;
+  profileAcquirerEnabled: boolean;
+  profileAcquirerRunAfterBackstage: boolean;
+  profileAcquirerAfterBackstageNewOnly: boolean;
+  profileAcquirerStaleHours: number;
+  profileAcquirerBatchLimit: number;
+  googleDriveProfileImagesFolderId: string;
+  googleDriveProfileImagesSubfolder: string;
+  profileAcquirerBrowserVideosEnabled: boolean;
+  profileAcquirerTiktokHeadless: boolean;
   projectRoot: string;
 }
 
@@ -118,6 +132,13 @@ function gathererParseBackstageHeadless(): boolean {
   return true;
 }
 
+function gathererParseCommaList(rawValue: string): string[] {
+  return rawValue
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 // MARK: - Configuration Loader
 
 export function loadGathererConfig(): GathererConfig {
@@ -139,6 +160,9 @@ export function loadGathererConfig(): GathererConfig {
     googleServiceAccountPrivateKey: gathererParsePrivateKey(
       process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ?? ""
     ),
+    googleDelegatedUser:
+      process.env.GOOGLE_DELEGATED_USER ?? process.env.GOOGLE_WORKSPACE_DELEGATED_USER ?? "",
+    googleScopes: gathererParseCommaList(process.env.GOOGLE_SCOPES ?? ""),
     googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ?? "",
     googleDriveDailyArchiveFolderId: process.env.GOOGLE_DRIVE_DAILY_ARCHIVE_FOLDER_ID ?? "",
     googleMasterSheetId: process.env.GOOGLE_MASTER_SHEET_ID ?? "",
@@ -192,6 +216,22 @@ export function loadGathererConfig(): GathererConfig {
       .map((term) => term.trim().toLowerCase())
       .filter(Boolean),
     gathererUpdateMasterDailyTab: process.env.GATHERER_UPDATE_MASTER_DAILY_TAB === "true",
+    gathererMasterSheetIncrementalUpdates:
+      process.env.GATHERER_MASTER_SHEET_INCREMENTAL_UPDATES !== "false",
+    profileAcquirerEnabled: process.env.GATHERER_PROFILE_ACQUIRER_ENABLED !== "false",
+    profileAcquirerRunAfterBackstage:
+      process.env.GATHERER_PROFILE_ACQUIRER_AFTER_BACKSTAGE === "true",
+    profileAcquirerAfterBackstageNewOnly:
+      process.env.GATHERER_PROFILE_ACQUIRER_AFTER_BACKSTAGE_NEW_ONLY !== "false",
+    profileAcquirerStaleHours: Number(process.env.GATHERER_PROFILE_ACQUIRER_STALE_HOURS ?? 24),
+    profileAcquirerBatchLimit: Number(process.env.GATHERER_PROFILE_ACQUIRER_BATCH_LIMIT ?? 25),
+    googleDriveProfileImagesFolderId: process.env.GOOGLE_DRIVE_PROFILE_IMAGES_FOLDER_ID ?? "",
+    googleDriveProfileImagesSubfolder:
+      process.env.GOOGLE_DRIVE_PROFILE_IMAGES_SUBFOLDER ?? "Profile Pictures",
+    profileAcquirerBrowserVideosEnabled:
+      process.env.GATHERER_PROFILE_ACQUIRER_BROWSER_VIDEOS !== "false",
+    profileAcquirerTiktokHeadless:
+      process.env.GATHERER_PROFILE_ACQUIRER_TIKTOK_HEADLESS !== "false",
     projectRoot: process.cwd(),
   };
 }

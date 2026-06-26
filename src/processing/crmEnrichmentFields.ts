@@ -112,6 +112,7 @@ export const CRM_ENRICHMENT_CORE_CONTACT_FIELDS = [
   "crm_contact_id",
   "profile_image_url",
   "country",
+  "market_region",
   "region",
   "timezone",
   "manager_name",
@@ -154,6 +155,7 @@ export const CRM_ENRICHMENT_MASTER_SHEET_PROFILE_BLOCK: CrmSheetEnrichmentDataFi
   "profile_image_url",
   ...CRM_ENRICHMENT_PROFILE_IMAGE_META_FIELDS,
   "country",
+  "market_region",
   "region",
   "timezone",
   ...CRM_ENRICHMENT_TIKTOK_PUBLIC_PROFILE_FIELDS,
@@ -208,8 +210,11 @@ const CRM_ENRICHMENT_HEADER_ALIAS_OVERRIDES: Record<string, CrmSheetEnrichmentDa
   login_enable: "login_enabled",
   crmcontactid: "crm_contact_id",
   profileimageurl: "profile_image_url",
-  /** Backstage/TikTok region code (e.g. us_ca), not a US state display name */
-  zregion: "region",
+  /** TikTok/Backstage agency market code (e.g. us_ca, us+) — not country or US state */
+  zregion: "market_region",
+  marketregion: "market_region",
+  market_region: "market_region",
+  backstage_market: "market_region",
   managername: "manager_name",
   directorname: "director_name",
   portaluserid: "portal_user_id",
@@ -245,4 +250,4 @@ export function crmEnrichmentBuildHeaderAliases(): Record<
 
 // Suggestions For Features and Additions Later:
 // - Resolve manager_name from agent_email / manager_email; director_name from director_email
-// - Optional country_code + backstage_region_code columns alongside region
+// - Optional country_code column alongside country for ISO display

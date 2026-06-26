@@ -2,13 +2,30 @@
  * Filename: googleAuth.ts
  * Purpose: Google service account authentication for Drive and Sheets.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-26
  * Dependencies: googleapis
  * Platform Compatibility: Node.js 18+
  */
 
 import { google } from "googleapis";
 import { GathererConfig } from "../config";
+
+// MARK: - Scopes
+
+const GOOGLE_AUTH_SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
+const GOOGLE_AUTH_SCOPE_DRIVE_FULL = "https://www.googleapis.com/auth/drive";
+const GOOGLE_AUTH_SCOPE_SPREADSHEETS = "https://www.googleapis.com/auth/spreadsheets";
+
+function googleAuthResolveScopes(config: GathererConfig): string[] {
+  if (config.googleScopes.length > 0) {
+    return config.googleScopes;
+  }
+
+  const delegatedUser = config.googleDelegatedUser.trim();
+  const driveScope = delegatedUser ? GOOGLE_AUTH_SCOPE_DRIVE_FULL : GOOGLE_AUTH_SCOPE_DRIVE_FILE;
+
+  return [driveScope, GOOGLE_AUTH_SCOPE_SPREADSHEETS];
+}
 
 // MARK: - Google Auth Client
 
@@ -19,13 +36,13 @@ export function createGoogleAuthClient(config: GathererConfig) {
     );
   }
 
+  const delegatedUser = config.googleDelegatedUser.trim();
+
   return new google.auth.JWT({
     email: config.googleServiceAccountEmail,
     key: config.googleServiceAccountPrivateKey,
-    scopes: [
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/spreadsheets",
-    ],
+    scopes: googleAuthResolveScopes(config),
+    ...(delegatedUser ? { subject: delegatedUser } : {}),
   });
 }
 
@@ -39,4 +56,4 @@ export function isGoogleConfigured(config: GathererConfig): boolean {
 }
 
 // Suggestions For Features and Additions Later:
-// - OAuth user flow as alternative to service account
+// - OAuth user flow as alternative to service account + domain-wide delegation

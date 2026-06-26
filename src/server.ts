@@ -2,18 +2,121 @@
  * Filename: server.ts
  * Purpose: Express server — manual run API, dashboard, status.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-26
  * Dependencies: express
  * Platform Compatibility: Node.js 18+
  */
 
-import express from "express";
-import path from "path";
+import express, { Request } from "express";
 import { GathererConfig } from "./config";
 import { runGathererJob } from "./jobs/runGathererJob";
+import {
+  ProfileAcquirerJobOptions,
+  ProfileAcquirerJobTrigger,
+  runProfileAcquirerJob,
+} from "./jobs/runProfileAcquirerJob";
 import { getGathererRunState } from "./jobs/runState";
 import { checkAndApplyGitUpdate } from "./gitAutoUpdate";
 import { logInfo } from "./logging/logger";
+
+// MARK: - Profile Acquirer Request Parsing
+
+interface ServerProfileAcquirerRequestBody {
+  normalized_username?: string;
+  trigger?: string;
+  force?: boolean;
+  username_changed?: boolean;
+}
+
+function serverParseProfileAcquirerUsername(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return trimmed || undefined;
+}
+
+function serverResolveProfileAcquirerTrigger(
+  explicitTrigger: string | undefined,
+  hasUsername: boolean,
+  defaultSingleUserTrigger: ProfileAcquirerJobTrigger
+): ProfileAcquirerJobTrigger {
+  const normalizedTrigger = explicitTrigger?.trim().toLowerCase();
+
+  if (normalizedTrigger === "login") {
+    return "login";
+  }
+  if (normalizedTrigger === "signup") {
+    return "signup";
+  }
+  if (normalizedTrigger === "manual" || normalizedTrigger === "scheduled") {
+    return normalizedTrigger;
+  }
+  if (normalizedTrigger === "post_backstage") {
+    return "post_backstage";
+  }
+
+  if (hasUsername) {
+    return defaultSingleUserTrigger;
+  }
+
+  return "manual";
+}
+
+function serverBuildProfileAcquirerJobOptions(
+  req: Request,
+  defaultSingleUserTrigger: ProfileAcquirerJobTrigger
+): ProfileAcquirerJobOptions {
+  const body = (req.body ?? {}) as ServerProfileAcquirerRequestBody;
+  const queryUsername = serverParseProfileAcquirerUsername(req.query.username);
+  const bodyUsername = serverParseProfileAcquirerUsername(body.normalized_username);
+  const username = bodyUsername ?? queryUsername;
+  const explicitTrigger =
+    typeof body.trigger === "string"
+      ? body.trigger
+      : typeof req.query.trigger === "string"
+        ? req.query.trigger
+        : undefined;
+
+  const trigger = serverResolveProfileAcquirerTrigger(explicitTrigger, Boolean(username), defaultSingleUserTrigger);
+
+  return {
+    trigger,
+    normalizedUsernames: username ? [username] : undefined,
+    forceRefresh: body.force === true || req.query.force === "true",
+    usernameChanged: body.username_changed === true || req.query.username_changed === "true",
+  };
+}
+
+async function serverHandleProfileAcquirerRequest(
+  req: Request,
+  res: express.Response,
+  defaultSingleUserTrigger: ProfileAcquirerJobTrigger,
+  logLabel: string
+): Promise<void> {
+  const options = serverBuildProfileAcquirerJobOptions(req, defaultSingleUserTrigger);
+
+  if (
+    (options.trigger === "login" || options.trigger === "signup") &&
+    !options.normalizedUsernames?.length
+  ) {
+    res.status(400).json({
+      success: false,
+      error: `${options.trigger} requires normalized_username`,
+    });
+    return;
+  }
+
+  logInfo(logLabel, "server", {
+    trigger: options.trigger,
+    username: options.normalizedUsernames?.[0] ?? null,
+    forceRefresh: options.forceRefresh ?? false,
+    usernameChanged: options.usernameChanged ?? false,
+  });
+
+  const result = await runProfileAcquirerJob(options);
+  res.json(result);
+}
 
 // MARK: - Dashboard HTML
 
@@ -40,7 +143,8 @@ function gathererDashboardHtml(config: GathererConfig): string {
 <body>
   <h1>InfiniView V3 Backstage Gatherer</h1>
   <p>Run exports, view status, open logs.</p>
-  <button class="btn" onclick="runNow()">Run Gatherer Now</button>
+  <button class="btn" onclick="runNow()">Run Backstage Gatherer</button>
+  <button class="btn secondary" onclick="runProfileAcquirer()">Run Profile Acquirer</button>
   <button class="btn secondary" onclick="refreshStatus()">View Last Run</button>
   <a class="btn secondary" href="/open-logs" target="_blank">Open Logs Folder</a>
   <a class="btn secondary" href="${sheetUrl}" target="_blank">Open Google Sheet</a>
@@ -53,8 +157,14 @@ function gathererDashboardHtml(config: GathererConfig): string {
       document.getElementById('status').textContent = JSON.stringify(data, null, 2);
     }
     async function runNow() {
-      document.getElementById('status').textContent = 'Running gatherer...';
+      document.getElementById('status').textContent = 'Running Backstage gatherer...';
       const res = await fetch('/run-now', { method: 'POST' });
+      const data = await res.json();
+      document.getElementById('status').textContent = JSON.stringify(data, null, 2);
+    }
+    async function runProfileAcquirer() {
+      document.getElementById('status').textContent = 'Running TikTok profile acquirer...';
+      const res = await fetch('/run-profile-acquirer', { method: 'POST' });
       const data = await res.json();
       document.getElementById('status').textContent = JSON.stringify(data, null, 2);
     }
@@ -73,6 +183,7 @@ function gathererDashboardHtml(config: GathererConfig): string {
 
 export function createGathererServer(config: GathererConfig): express.Application {
   const app = express();
+  app.use(express.json());
 
   app.get("/", (_req, res) => {
     res.type("html").send(gathererDashboardHtml(config));
@@ -83,15 +194,64 @@ export function createGathererServer(config: GathererConfig): express.Applicatio
   });
 
   app.post("/run-now", async (_req, res) => {
-    logInfo("Manual run triggered via API", "server");
+    logInfo("Manual Backstage gather triggered via API", "server");
     const result = await runGathererJob({ trigger: "manual" });
     res.json(result);
   });
 
   app.get("/run-now", async (_req, res) => {
-    logInfo("Manual run triggered via GET", "server");
+    logInfo("Manual Backstage gather triggered via GET", "server");
     const result = await runGathererJob({ trigger: "manual" });
     res.json(result);
+  });
+
+  app.post("/run-profile-acquirer", async (req, res) => {
+    await serverHandleProfileAcquirerRequest(
+      req,
+      res,
+      "signup",
+      "Profile acquirer triggered via POST /run-profile-acquirer"
+    );
+  });
+
+  app.get("/run-profile-acquirer", async (req, res) => {
+    await serverHandleProfileAcquirerRequest(
+      req,
+      res,
+      "signup",
+      `Profile acquirer triggered via GET /run-profile-acquirer${typeof req.query.username === "string" ? ` for @${req.query.username}` : ""}`
+    );
+  });
+
+  app.post("/run-profile-acquirer/signup", async (req, res) => {
+    const body = (req.body ?? {}) as ServerProfileAcquirerRequestBody;
+    req.body = { ...body, trigger: "signup" };
+    await serverHandleProfileAcquirerRequest(
+      req,
+      res,
+      "signup",
+      "Profile acquirer signup trigger"
+    );
+  });
+
+  app.post("/run-profile-acquirer/login", async (req, res) => {
+    const body = (req.body ?? {}) as ServerProfileAcquirerRequestBody;
+    req.body = { ...body, trigger: "login" };
+    await serverHandleProfileAcquirerRequest(
+      req,
+      res,
+      "login",
+      "Profile acquirer login trigger"
+    );
+  });
+
+  app.get("/run-profile-acquirer/login", async (req, res) => {
+    await serverHandleProfileAcquirerRequest(
+      req,
+      res,
+      "login",
+      `Profile acquirer login trigger via GET${typeof req.query.username === "string" ? ` for @${req.query.username}` : ""}`
+    );
   });
 
   app.post("/api/update", (_req, res) => {
@@ -117,4 +277,5 @@ export function startGathererServer(config: GathererConfig): void {
 }
 
 // Suggestions For Features and Additions Later:
-// - Basic auth for /run-now endpoint
+// - Basic auth for /run-now and /run-profile-acquirer endpoints
+// - Shared secret header for InfiniView → gatherer calls

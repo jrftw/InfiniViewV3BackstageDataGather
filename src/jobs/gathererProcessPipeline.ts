@@ -28,7 +28,9 @@ import {
 } from "../outputs/outputTargets";
 import { validateGathererExportFiles } from "./validateRun";
 import { CombinedCreatorRecord } from "../processing/mergeBackstageReports";
-import { logDebug } from "../logging/logger";
+import { readMasterCreatorsSheet } from "../google/readMasterCreatorsSheet";
+import { preserveMasterProfileFieldsOnCreators } from "../processing/preserveMasterProfileFields";
+import { logDebug, logWarn } from "../logging/logger";
 import {
   gathererLogInfo,
   gathererLogOk,
@@ -230,9 +232,28 @@ export async function runGathererProcessPipeline(
     filterResult.activeCreators
   );
 
+  let creatorsForOutput = enrichedCreators;
+  if (config.googleMasterSheetId) {
+    try {
+      const masterCreators = await readMasterCreatorsSheet(config);
+      creatorsForOutput = preserveMasterProfileFieldsOnCreators(enrichedCreators, masterCreators);
+      if (masterCreators.length > 0) {
+        gathererLogOk(
+          "Profile snapshot preserve",
+          `kept TikTok public profile fields from master for existing creators`
+        );
+      }
+    } catch (error) {
+      logWarn(
+        `Could not preserve profile fields from master sheet: ${error instanceof Error ? error.message : String(error)}`,
+        "gathererProcessPipeline"
+      );
+    }
+  }
+
   const syncedAt = new Date().toISOString();
 
-  const creatorsWithChecksum = applyCreatorSystemMetadataToCreators(enrichedCreators, {
+  const creatorsWithChecksum = applyCreatorSystemMetadataToCreators(creatorsForOutput, {
     runId,
     syncedAt,
     syncSuccess: true,
@@ -244,7 +265,7 @@ export async function runGathererProcessPipeline(
     `${cacheResult.rowsWritten} updated · ${cacheResult.rowsSkipped} unchanged · ${cacheResult.indexPath}`
   );
 
-  const creators = applyCreatorSystemMetadataToCreators(enrichedCreators, {
+  const creators = applyCreatorSystemMetadataToCreators(creatorsForOutput, {
     runId,
     syncedAt,
     syncSuccess: true,
@@ -257,7 +278,7 @@ export async function runGathererProcessPipeline(
     startedAt,
     finishedAt: new Date().toISOString(),
     status: "success",
-    rowsRead: enrichedCreators.length,
+    rowsRead: creatorsForOutput.length,
     rowsChanged: cacheResult.rowsWritten,
     rowsFailed:
       enrichmentStats.crmSkippedMismatchCount + enrichmentStats.dipSkippedMismatchCount,

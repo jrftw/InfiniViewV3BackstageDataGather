@@ -2,7 +2,7 @@
  * Filename: runState.ts
  * Purpose: Shared run lock and last-run status for scheduler and API.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-25
  * Platform Compatibility: Node.js 18+
  */
 
@@ -50,6 +50,20 @@ export function getGathererRunState(): GathererRunState {
     lastSummary: gathererLastSummary,
     lastError: gathererLastError,
   };
+}
+
+export function getGathererMinutesSinceLastRunStarted(): number | null {
+  const summary =
+    gathererLastSummary ??
+    gathererReadJsonFile<ImportSummaryData>(path.resolve(LAST_SUMMARY_FILE));
+  if (!summary?.startedAt) {
+    return null;
+  }
+  const startedMs = Date.parse(summary.startedAt);
+  if (!Number.isFinite(startedMs)) {
+    return null;
+  }
+  return Math.floor((Date.now() - startedMs) / 60_000);
 }
 
 export function setGathererLastSummary(summary: ImportSummaryData): void {

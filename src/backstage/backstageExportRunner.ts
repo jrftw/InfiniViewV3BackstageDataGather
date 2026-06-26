@@ -13,6 +13,7 @@ import { exportBackstagePerformanceReport } from "./exportPerformanceReport";
 import { exportBackstageManagementReport } from "./exportManagementReport";
 import { applyBackstageViewport, dismissBackstagePopups } from "./backstagePageHelpers";
 import { ensureBackstageAuthenticated } from "./backstageSession";
+import { gathererInvalidateStaleBackstageAuthIfNeeded } from "./backstageSessionRelogin";
 import { logInfo, logError } from "../logging/logger";
 
 // MARK: - Export Result
@@ -41,6 +42,7 @@ export async function runBackstageExports(
   timestamp: string
 ): Promise<BackstageExportResult> {
   logInfo("Starting Backstage browser exports", "backstageExportRunner");
+  gathererInvalidateStaleBackstageAuthIfNeeded(config);
   const session = await launchBackstageBrowser(config);
 
   try {

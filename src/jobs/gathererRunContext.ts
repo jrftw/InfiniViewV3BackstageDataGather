@@ -16,6 +16,9 @@ export type GathererRunTrigger = "scheduled" | "manual";
 export interface GathererJobOptions {
   trigger?: GathererRunTrigger;
   scheduledTime?: string;
+  scheduledSlotIndex?: number;
+  scheduledSlotTotal?: number;
+  isDailyFinalRun?: boolean;
 }
 
 export interface GathererRunContext {
@@ -42,21 +45,29 @@ export function buildGathererRunContext(
   const dailySheetPrefix = process.env.GATHERER_DAILY_SHEET_TAB_PREFIX ?? "Daily";
   const dailySheetTabName = `${dailySheetPrefix}_${dailyDateKey}`;
   const dailyOutputBaseName = `combined-creators-${dailyDateKey}`;
-  const scheduledSlotTotal = config.runSchedules.length;
+  let scheduledSlotTotal =
+    options.scheduledSlotTotal ?? config.runSchedules.length;
 
   let scheduledTime: string | null = null;
   let scheduledSlotIndex: number | null = null;
 
   if (runTrigger === "scheduled" && options.scheduledTime) {
     scheduledTime = options.scheduledTime;
-    const scheduleIndex = config.runSchedules.indexOf(options.scheduledTime);
-    scheduledSlotIndex = scheduleIndex >= 0 ? scheduleIndex + 1 : scheduledSlotTotal;
+    if (options.scheduledSlotIndex !== undefined && options.scheduledSlotTotal !== undefined) {
+      scheduledSlotIndex = options.scheduledSlotIndex;
+      scheduledSlotTotal = options.scheduledSlotTotal;
+    } else {
+      const scheduleIndex = config.runSchedules.indexOf(options.scheduledTime);
+      scheduledSlotIndex = scheduleIndex >= 0 ? scheduleIndex + 1 : scheduledSlotTotal;
+    }
   }
 
   const isDailyFinalRun =
-    runTrigger === "scheduled" &&
-    scheduledSlotIndex !== null &&
-    scheduledSlotIndex === scheduledSlotTotal;
+    options.isDailyFinalRun !== undefined
+      ? options.isDailyFinalRun
+      : runTrigger === "scheduled" &&
+        scheduledSlotIndex !== null &&
+        scheduledSlotIndex === scheduledSlotTotal;
 
   return {
     runTrigger,

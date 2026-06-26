@@ -134,7 +134,7 @@ export async function runGathererJob(
     } else if (runContext.isDailyFinalRun) {
       gathererLogWarn("Google Drive", "daily archive not uploaded — check folder share");
     } else {
-      gathererLogInfo("Google Drive", "intraday run — archive uploads on scheduled slot 4");
+      gathererLogInfo("Google Drive", "intraday run — daily archive runs at final slot near GATHERER_DAILY_ARCHIVE_TIME");
     }
 
     setGathererLastSummary(summary);

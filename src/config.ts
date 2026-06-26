@@ -2,13 +2,17 @@
  * Filename: config.ts
  * Purpose: Central configuration loaded from environment variables for the Backstage Gatherer.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-25
  * Dependencies: dotenv
  * Platform Compatibility: Node.js 18+ (Windows server PC)
  */
 
 import dotenv from "dotenv";
 import path from "path";
+import {
+  GathererScheduleMode,
+  gathererLoadFixedRunScheduleLabels,
+} from "./scheduler/gathererSchedulePlanner";
 
 // MARK: - Environment Bootstrap
 
@@ -51,6 +55,15 @@ export interface GathererConfig {
   localLogDir: string;
   localCacheDir: string;
   runSchedules: string[];
+  gathererScheduleMode: GathererScheduleMode;
+  gathererRunsPerDay: number;
+  gathererActiveHoursStart: string;
+  gathererActiveHoursEnd: string;
+  gathererRunJitterMinutes: number;
+  gathererMinMinutesBetweenRuns: number;
+  gathererDailyArchiveTime: string;
+  gathererKeepRawPairsPerDay: number;
+  gathererBackstageForceReloginHours: number;
   keepLocalFilesDays: number;
   gitUpdateBranch: string;
   gitUpdateCheckMinutes: number;
@@ -110,12 +123,9 @@ function gathererParseBackstageHeadless(): boolean {
 export function loadGathererConfig(): GathererConfig {
   loadGathererEnvFile();
 
-  const runSchedules = [
-    process.env.RUN_SCHEDULE_1 ?? "08:00",
-    process.env.RUN_SCHEDULE_2 ?? "12:00",
-    process.env.RUN_SCHEDULE_3 ?? "16:00",
-    process.env.RUN_SCHEDULE_4 ?? "20:00",
-  ].filter(Boolean);
+  const gathererScheduleMode: GathererScheduleMode =
+    process.env.GATHERER_SCHEDULE_MODE === "random" ? "random" : "fixed";
+  const runSchedules = gathererLoadFixedRunScheduleLabels();
 
   return {
     nodeEnv: process.env.NODE_ENV ?? "production",
@@ -143,7 +153,18 @@ export function loadGathererConfig(): GathererConfig {
     localLogDir: gathererResolvePath(process.env.LOCAL_LOG_DIR ?? "data/logs"),
     localCacheDir: gathererResolvePath(process.env.LOCAL_CACHE_DIR ?? "cache/creators"),
     runSchedules,
-    keepLocalFilesDays: Number(process.env.KEEP_LOCAL_FILES_DAYS ?? 30),
+    gathererScheduleMode,
+    gathererRunsPerDay: Number(process.env.GATHERER_RUNS_PER_DAY ?? 10),
+    gathererActiveHoursStart: process.env.GATHERER_ACTIVE_HOURS_START ?? "07:30",
+    gathererActiveHoursEnd: process.env.GATHERER_ACTIVE_HOURS_END ?? "22:30",
+    gathererRunJitterMinutes: Number(process.env.GATHERER_RUN_JITTER_MINUTES ?? 18),
+    gathererMinMinutesBetweenRuns: Number(process.env.GATHERER_MIN_MINUTES_BETWEEN_RUNS ?? 55),
+    gathererDailyArchiveTime: process.env.GATHERER_DAILY_ARCHIVE_TIME ?? "20:00",
+    gathererKeepRawPairsPerDay: Number(process.env.GATHERER_KEEP_RAW_PAIRS_PER_DAY ?? 4),
+    gathererBackstageForceReloginHours: Number(
+      process.env.GATHERER_BACKSTAGE_FORCE_RELOGIN_HOURS ?? 8
+    ),
+    keepLocalFilesDays: Number(process.env.KEEP_LOCAL_FILES_DAYS ?? 14),
     gitUpdateBranch: process.env.GIT_UPDATE_BRANCH ?? "main",
     gitUpdateCheckMinutes: Number(process.env.GIT_UPDATE_CHECK_MINUTES ?? 15),
     backstagePerformanceDays: Number(process.env.BACKSTAGE_PERFORMANCE_DAYS ?? 30),

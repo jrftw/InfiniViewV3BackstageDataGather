@@ -99,6 +99,9 @@ export interface GathererConfig {
   googleDriveProfileImagesSubfolder: string;
   profileAcquirerBrowserVideosEnabled: boolean;
   profileAcquirerTiktokHeadless: boolean;
+  mongodbUri: string;
+  mongodbDbName: string;
+  gathererMongoEnabled: boolean;
   projectRoot: string;
 }
 
@@ -137,6 +140,12 @@ function gathererParseCommaList(rawValue: string): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+// MARK: - MongoDB Helpers
+
+export function gathererIsMongoConfigured(config: Pick<GathererConfig, "mongodbUri" | "gathererMongoEnabled">): boolean {
+  return config.gathererMongoEnabled && config.mongodbUri.trim().length > 0;
 }
 
 // MARK: - Configuration Loader
@@ -232,6 +241,9 @@ export function loadGathererConfig(): GathererConfig {
       process.env.GATHERER_PROFILE_ACQUIRER_BROWSER_VIDEOS !== "false",
     profileAcquirerTiktokHeadless:
       process.env.GATHERER_PROFILE_ACQUIRER_TIKTOK_HEADLESS !== "false",
+    mongodbUri: process.env.MONGODB_URI ?? "",
+    mongodbDbName: process.env.MONGODB_DB_NAME ?? "InfiniCoreV1",
+    gathererMongoEnabled: process.env.GATHERER_MONGODB_ENABLED !== "false",
     projectRoot: process.cwd(),
   };
 }
@@ -239,3 +251,4 @@ export function loadGathererConfig(): GathererConfig {
 // Suggestions For Features and Additions Later:
 // - Add config validation schema (zod) for startup errors
 // - Support config.json override for non-secret settings
+// - Validate MONGODB_URI format at startup when gathererMongoEnabled is true

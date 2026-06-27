@@ -9,10 +9,11 @@
 
 import fs from "fs";
 import { chromium } from "playwright";
-import { GathererConfig } from "../config";
+import { GathererConfig, gathererIsMongoConfigured } from "../config";
 import { isGoogleConfigured } from "../google/googleAuth";
 import { createGoogleSheetsClient } from "../google/sheetsClient";
 import { createGoogleDriveClient } from "../google/driveClient";
+import { gathererPingMongo } from "../mongo/gathererMongoClient";
 import {
   gathererLogBanner,
   gathererLogFail,
@@ -411,6 +412,43 @@ export async function runGathererPreflightCheck(
         blocking: false,
       });
     }
+  }
+
+  if (isGathererFriendlyLoggingEnabled()) {
+    gathererLogSection("MongoDB");
+  }
+
+  if (!gathererIsMongoConfigured(config)) {
+    preflightAddCheck(checks, {
+      id: "mongodb_config",
+      label: "MongoDB integration",
+      status: "warn",
+      message: "not configured — set MONGODB_URI to enable production database dual-write",
+      blocking: false,
+    });
+  } else {
+    preflightAddCheck(checks, {
+      id: "mongodb_config",
+      label: "MongoDB .env variables",
+      status: "pass",
+      message: `URI set · database ${config.mongodbDbName}`,
+      blocking: false,
+    });
+
+    if (isGathererFriendlyLoggingEnabled()) {
+      gathererLogWorking(`Pinging MongoDB (${config.mongodbDbName})`);
+    }
+
+    const mongoReady = await gathererPingMongo(config);
+    preflightAddCheck(checks, {
+      id: "mongodb_ping",
+      label: "MongoDB connection",
+      status: mongoReady ? "pass" : "warn",
+      message: mongoReady
+        ? `connected to ${config.mongodbDbName}`
+        : "ping failed — check MONGODB_URI, IP allowlist, and credentials",
+      blocking: false,
+    });
   }
 
   const blockingErrors = checks

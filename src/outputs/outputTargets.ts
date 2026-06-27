@@ -6,7 +6,7 @@
  * Platform Compatibility: Node.js 18+
  */
 
-import { GathererConfig } from "../config";
+import { GathererConfig, gathererIsMongoConfigured } from "../config";
 import { isGoogleConfigured } from "../google/googleAuth";
 import { uploadGathererRunToDrive } from "../google/uploadDriveFile";
 import { updateGoogleSheetTabs } from "../google/updateSheetTabs";
@@ -19,6 +19,7 @@ import { ParsedBackstageRow } from "../processing/parseWorkbook";
 import { ImportSummaryData } from "../logging/importSummary";
 import { SyncLogAppendRow } from "../google/syncSheetTabs";
 import { logInfo, logError } from "../logging/logger";
+import { publishCreatorsToMongo } from "../mongo/publishCreatorsToMongo";
 
 // MARK: - Output Context
 
@@ -38,6 +39,9 @@ export interface GathererOutputContext {
 export interface GathererPublishResult {
   driveUploaded: boolean;
   sheetsUpdated: boolean;
+  mongoPublished: boolean;
+  mongoCreatorsUpserted: number;
+  mongoSnapshotsInserted: number;
   dailyArchiveUrl: string | null;
 }
 
@@ -122,26 +126,94 @@ export const googleSheetsOutputTarget: OutputTarget = {
   },
 };
 
+// MARK: - MongoDB Output
+
+let gathererLastMongoPublishStats: {
+  published: boolean;
+  creatorsUpserted: number;
+  snapshotsInserted: number;
+} = {
+  published: false,
+  creatorsUpserted: 0,
+  snapshotsInserted: 0,
+};
+
+export const mongoDbOutputTarget: OutputTarget = {
+  name: "MongoDbOutput",
+  async publish(context: GathererOutputContext): Promise<boolean> {
+    gathererLastMongoPublishStats = {
+      published: false,
+      creatorsUpserted: 0,
+      snapshotsInserted: 0,
+    };
+
+    if (!gathererIsMongoConfigured(context.config)) {
+      logInfo("MongoDB skipped — not configured", "MongoDbOutput");
+      return false;
+    }
+
+    try {
+      const mongoResult = await publishCreatorsToMongo(
+        context.config,
+        context.creators,
+        context.summary
+      );
+      gathererLastMongoPublishStats = {
+        published: mongoResult.published,
+        creatorsUpserted: mongoResult.creatorsUpserted,
+        snapshotsInserted: mongoResult.snapshotsInserted,
+      };
+      return mongoResult.published;
+    } catch (error) {
+      logError("MongoDB publish failed", "MongoDbOutput", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  },
+};
+
 // MARK: - Publish All Targets
 
 export async function publishToAllOutputTargets(
   context: GathererOutputContext
 ): Promise<GathererPublishResult> {
-  const targets = [localFileOutputTarget, googleDriveOutputTarget, googleSheetsOutputTarget];
+  const targets = [
+    localFileOutputTarget,
+    googleDriveOutputTarget,
+    googleSheetsOutputTarget,
+    mongoDbOutputTarget,
+  ];
 
   let driveUploaded = false;
   let sheetsUpdated = false;
+  let mongoPublished = false;
+  let mongoCreatorsUpserted = 0;
+  let mongoSnapshotsInserted = 0;
   gathererLastDailyArchiveUrl = null;
+  gathererLastMongoPublishStats = {
+    published: false,
+    creatorsUpserted: 0,
+    snapshotsInserted: 0,
+  };
 
   for (const target of targets) {
     const ok = await target.publish(context);
     if (target.name === "GoogleDriveOutput") driveUploaded = ok;
     if (target.name === "GoogleSheetsOutput") sheetsUpdated = ok;
+    if (target.name === "MongoDbOutput") {
+      mongoPublished = ok;
+      mongoCreatorsUpserted = gathererLastMongoPublishStats.creatorsUpserted;
+      mongoSnapshotsInserted = gathererLastMongoPublishStats.snapshotsInserted;
+    }
   }
 
   return {
     driveUploaded,
     sheetsUpdated,
+    mongoPublished,
+    mongoCreatorsUpserted,
+    mongoSnapshotsInserted,
     dailyArchiveUrl: gathererLastDailyArchiveUrl,
   };
 }
@@ -196,4 +268,5 @@ export async function loadDipSheetEnrichmentIfConfigured(
 }
 
 // Suggestions For Features and Additions Later:
-// - FutureDatabaseOutput adapter for MongoDB/Supabase
+// - FutureDatabaseOutput adapter for additional databases (Supabase/Postgres)
+// - Parallel publish to Drive/Sheets/Mongo when safe for throughput

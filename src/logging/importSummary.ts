@@ -30,6 +30,9 @@ export interface ImportSummaryData {
   outputFiles: string[];
   driveUploaded: boolean;
   sheetsUpdated: boolean;
+  mongoPublished?: boolean;
+  mongoCreatorsUpserted?: number;
+  mongoSnapshotsInserted?: number;
   runTrigger?: string;
   scheduledSlotIndex?: number | null;
   scheduledSlotTotal?: number;
@@ -69,6 +72,9 @@ export function buildImportSummary(
     outputFiles: partial.outputFiles,
     driveUploaded: partial.driveUploaded,
     sheetsUpdated: partial.sheetsUpdated,
+    mongoPublished: partial.mongoPublished,
+    mongoCreatorsUpserted: partial.mongoCreatorsUpserted,
+    mongoSnapshotsInserted: partial.mongoSnapshotsInserted,
   };
 }
 

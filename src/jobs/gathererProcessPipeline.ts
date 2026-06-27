@@ -352,8 +352,8 @@ export async function runGathererProcessPipeline(
     cacheResult.indexPath,
   ];
 
-  step(5, "Updating Google Sheet + Drive");
-  gathererLogWorking("Publishing to Google");
+  step(5, "Updating Google Sheet, Drive, and MongoDB");
+  gathererLogWorking("Publishing outputs");
 
   const publishResult = await publishToAllOutputTargets({
     config,
@@ -375,6 +375,9 @@ export async function runGathererProcessPipeline(
     outputFiles: allLocalFiles,
     driveUploaded: publishResult.driveUploaded,
     sheetsUpdated: publishResult.sheetsUpdated,
+    mongoPublished: publishResult.mongoPublished,
+    mongoCreatorsUpserted: publishResult.mongoCreatorsUpserted,
+    mongoSnapshotsInserted: publishResult.mongoSnapshotsInserted,
   });
 
   return {

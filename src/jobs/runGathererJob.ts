@@ -141,6 +141,15 @@ export async function runGathererJob(
       gathererLogInfo("Google Drive", "intraday run — daily archive runs at final slot near GATHERER_DAILY_ARCHIVE_TIME");
     }
 
+    if (publishResult.mongoPublished) {
+      gathererLogOk(
+        "MongoDB updated",
+        `${publishResult.mongoCreatorsUpserted} creators · ${publishResult.mongoSnapshotsInserted} snapshots`
+      );
+    } else {
+      gathererLogInfo("MongoDB", "skipped or not configured");
+    }
+
     setGathererLastSummary(summary);
     cleanupOldLocalGathererFiles(config);
 
@@ -183,6 +192,7 @@ export async function runGathererJob(
       outputFiles: [],
       driveUploaded: false,
       sheetsUpdated: false,
+      mongoPublished: false,
       runTrigger: runContext.runTrigger,
       scheduledSlotIndex: runContext.scheduledSlotIndex,
       scheduledSlotTotal: runContext.scheduledSlotTotal,

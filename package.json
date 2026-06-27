@@ -15,6 +15,7 @@
     "profile-acquire": "tsx src/jobs/runProfileAcquirerJob.ts",
     "profile-acquire:user": "tsx src/jobs/runProfileAcquirerJob.ts --username=",
     "gather:visible": "powershell -NoProfile -Command \"$env:BACKSTAGE_HEADLESS='false'; $env:BACKSTAGE_SLOW_MO_MS='75'; $env:GATHERER_FRIENDLY_LOGS='true'; npx tsx src/jobs/runGathererJob.ts\"",
+    "pipeline": "npm run gather && npm run profile-acquire",
     "preflight": "tsx src/jobs/runPreflightCheck.ts",
     "preflight:check": "powershell -NoProfile -Command \"$env:GATHERER_FRIENDLY_LOGS='true'; npx tsx src/jobs/runPreflightCheck.ts\"",
     "postinstall": "playwright install chromium"

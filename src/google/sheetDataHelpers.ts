@@ -202,5 +202,33 @@ export function sheetDataCreatorToRowValues(
   return headers.map((header) => sheetDataFormatCreatorCellValue(header, creator[header]));
 }
 
+/**
+ * Build one sheet row aligned to an existing header row — only overwrites selected fields.
+ * Unmapped columns and non-target fields keep values from existingRow when provided.
+ */
+export function sheetDataBuildPatchedRowWithHeaderLabels(
+  creator: CombinedCreatorRecord,
+  headerLabels: string[],
+  options: {
+    existingRow?: string[];
+    resolveHeaderField: (label: string) => keyof CombinedCreatorRecord | null;
+    overwriteFields: Set<string>;
+  }
+): string[] {
+  return headerLabels.map((label, columnIndex) => {
+    const field = options.resolveHeaderField(label);
+    if (!field) {
+      return options.existingRow?.[columnIndex] ?? "";
+    }
+
+    const shouldOverwrite = options.overwriteFields.has(field);
+    if (!shouldOverwrite && options.existingRow) {
+      return options.existingRow[columnIndex] ?? "";
+    }
+
+    return sheetDataFormatCreatorCellValue(field, creator[field]);
+  });
+}
+
 // Suggestions For Features and Additions Later:
 // - Per-tab column order overrides via config

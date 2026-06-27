@@ -16,7 +16,7 @@ import {
   releaseGathererRunLock,
 } from "./runState";
 import { readMasterCreatorsSheet } from "../google/readMasterCreatorsSheet";
-import { publishMasterCreatorsTab } from "../google/publishMasterCreatorsTab";
+import { publishProfileAcquirerMasterSheetPatches } from "../google/masterSheetIncrementalPublish";
 import { CombinedCreatorRecord } from "../processing/mergeBackstageReports";
 import { normalizeTikTokUsername } from "../processing/normalizeUsername";
 import {
@@ -275,9 +275,12 @@ export async function runProfileAcquirerJob(
     );
 
     gathererLogSection("Publish profile updates");
-    gathererLogWorking("Writing profile fields back to master sheet");
+    gathererLogWorking("Patching profile fields on master sheet (row-level, no full-tab rewrite)");
 
-    const publishResult = await publishMasterCreatorsTab(config, mergedAllCreators);
+    const publishResult = await publishProfileAcquirerMasterSheetPatches(
+      config,
+      updatedCreators
+    );
     if (publishResult.skippedNoChanges) {
       gathererLogInfo(
         "Google Sheet",

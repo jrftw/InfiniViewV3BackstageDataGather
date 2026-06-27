@@ -3,7 +3,7 @@
 **Filename:** HOW_TO_RUN.md  
 **Purpose:** Step-by-step guide to install, configure, and run the gatherer on dev PC and server PC  
 **Author:** Kevin Doyle Jr. / Infinitum Imagery LLC  
-**Last Modified:** 2026-06-23  
+**Last Modified:** 2026-06-27  
 **Platform Compatibility:** Windows 10/11, Node.js 18+
 
 ---
@@ -213,6 +213,78 @@ Raw Backstage exports in `data/raw/` keep a timestamp per run for debugging.
 
 ---
 
+## Full pipeline (Backstage → Profile)
+
+There are **three ways** profile data gets refreshed:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  A. Scheduled / manual Backstage gather (start-server.bat)      │
+│     → optional chain: profile batch for new/stale creators      │
+├─────────────────────────────────────────────────────────────────┤
+│  B. Manual one-shot: Backstage then profile batch               │
+│     → run-gather-then-profile.bat  OR  npm run pipeline         │
+├─────────────────────────────────────────────────────────────────┤
+│  C. InfiniView app signup / login                               │
+│     → API calls gatherer POST /run-profile-acquirer/signup|login│
+│     → signup: always refresh that user                          │
+│     → login: refresh if stale (24h) or username changed         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### A — Auto-chain after each Backstage run (server PC)
+
+In `.env`:
+
+```env
+GATHERER_PROFILE_ACQUIRER_AFTER_BACKSTAGE=true
+GATHERER_PROFILE_ACQUIRER_AFTER_BACKSTAGE_NEW_ONLY=false
+GATHERER_PROFILE_ACQUIRER_STALE_HOURS=24
+GATHERER_PROFILE_ACQUIRER_BATCH_LIMIT=25
+```
+
+Then run **`start-server.bat`**. Every scheduled Backstage gather automatically runs a profile batch afterward (up to 25 stale creators per run).
+
+### B — Manual full pipeline (watch or headless)
+
+**PowerShell:**
+
+```powershell
+.\run-gather-then-profile.bat
+# or
+npm run pipeline
+```
+
+Runs Backstage export first, then profile acquirer batch.
+
+### C — InfiniView signup / login triggers
+
+The gatherer **must be running** as a server (`start-server.bat`) so port **3099** accepts API calls.
+
+**InfiniView API** (`backend/.env` or Firebase `functions/.env.infiniviewv3`):
+
+```env
+INFINIVIEW_GATHERER_BASE_URL=http://localhost:3099
+INFINIVIEW_GATHERER_PROFILE_ACQUIRER_ENABLED=true
+```
+
+| App event | Gatherer endpoint | Behavior |
+|---|---|---|
+| Creator signup | `POST /run-profile-acquirer/signup` | Always scrapes that user's TikTok profile |
+| Creator login | `POST /run-profile-acquirer/login` | Scrapes only if profile is stale (24h+) or username changed |
+
+**Production note:** Firebase Cloud Functions cannot reach `localhost`. Point `INFINIVIEW_GATHERER_BASE_URL` at your server PC's **Tailscale IP**, LAN IP, or tunnel URL (e.g. `http://100.x.x.x:3099`).
+
+Test signup trigger manually:
+
+```powershell
+curl -X POST http://localhost:3099/run-profile-acquirer/signup `
+  -H "Content-Type: application/json" `
+  -d '{"normalized_username":"jrftw"}'
+```
+
+---
+
 ## Output files
 
 | Location | Files |
@@ -267,6 +339,7 @@ Server pulls updates from GitHub every ~15 minutes when `start-server.bat` is ru
 | `npm run preflight` | Verify connections only (no Backstage export) |
 | `npm run gather` | One full gatherer run |
 | `npm run gather:visible` | Gatherer with visible browser |
+| `npm run pipeline` | Backstage gather then profile batch |
 | `npm start` | Start 24/7 server + scheduler |
 
 ---
@@ -278,6 +351,7 @@ Server pulls updates from GitHub every ~15 minutes when `start-server.bat` is ru
 | `install-server.bat` | First-time `npm ci` + build + create `.env` |
 | `run-now-visible.bat` | One run, visible browser |
 | `run-now.bat` | One run, uses `.env` headless setting |
+| `run-gather-then-profile.bat` | Backstage gather, then profile batch |
 | `start-server.bat` | 24/7 server (auto-restarts after git update) |
 | `setup-auto-update.bat` | Windows scheduled task backup updater |
 

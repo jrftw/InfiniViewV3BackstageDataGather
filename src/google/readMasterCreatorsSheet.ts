@@ -144,6 +144,13 @@ function readMasterCreatorsSheetMapHeader(raw: string): keyof CombinedCreatorRec
   return READ_MASTER_CREATORS_SHEET_HEADER_ALIASES[normalized] ?? null;
 }
 
+/** Resolve a master sheet header label to a creator field key (shared by read + patch publish). */
+export function readMasterCreatorsSheetResolveHeaderField(
+  raw: string
+): keyof CombinedCreatorRecord | null {
+  return readMasterCreatorsSheetMapHeader(raw);
+}
+
 function readMasterCreatorsSheetParseCell(
   field: keyof CombinedCreatorRecord,
   raw: string

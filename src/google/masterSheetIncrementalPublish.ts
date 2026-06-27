@@ -17,11 +17,16 @@ import { normalizeCreatorRecordForApp } from "../processing/normalizeCreatorForC
 import {
   sheetDataCreatorToRowValues,
   sheetDataResolveCreatorHeaders,
+  sheetDataBuildPatchedRowWithHeaderLabels,
 } from "./sheetDataHelpers";
-import { readMasterCreatorsSheetRawRows } from "./readMasterCreatorsSheet";
+import {
+  readMasterCreatorsSheetRawRows,
+  readMasterCreatorsSheetResolveHeaderField,
+} from "./readMasterCreatorsSheet";
 import { freezeGoogleSheetHeaderRow } from "./sheetFreezeHeaders";
 import { logInfo } from "../logging/logger";
 import { publishMasterCreatorsTabFullOverwrite } from "./publishMasterCreatorsTab";
+import { PROFILE_ACQUIRER_WRITABLE_FIELD_SET } from "../profileAcquirer/profileAcquirerWritableFields";
 
 // MARK: - Result
 
@@ -350,6 +355,180 @@ export async function publishMasterCreatorsTabIncremental(
     rowsUpdated: rowUpdates.length,
     rowsAppended: rowsToAppend.length,
     rowsRemoved: rowsToRemove.length,
+    rowsUnchanged,
+  };
+}
+
+// MARK: - Profile Acquirer Patch Publish
+
+const PROFILE_ACQUIRER_MASTER_SHEET_PATCH_EXTRA_FIELDS = new Set<string>([
+  ...PROFILE_ACQUIRER_WRITABLE_FIELD_SET,
+  "row_checksum",
+  "record_updated_at",
+]);
+
+function masterSheetProfileAcquirerPreparePatchedCreator(
+  creator: CombinedCreatorRecord
+): CombinedCreatorRecord {
+  const patched = { ...creator, record_updated_at: new Date().toISOString() };
+  patched.row_checksum = buildCreatorRowChecksum(patched);
+  return patched;
+}
+
+/**
+ * Patch only creators updated by the profile acquirer — uses existing sheet column layout.
+ * Avoids full-tab rewrite when code headers differ from the live sheet (e.g. new columns pending).
+ */
+export async function publishProfileAcquirerMasterSheetPatches(
+  config: GathererConfig,
+  patchedCreators: CombinedCreatorRecord[]
+): Promise<MasterSheetIncrementalPublishResult> {
+  const emptyResult: MasterSheetIncrementalPublishResult = {
+    published: false,
+    skippedNoChanges: true,
+    fullOverwrite: false,
+    rowsUpdated: 0,
+    rowsAppended: 0,
+    rowsRemoved: 0,
+    rowsUnchanged: 0,
+  };
+
+  if (!config.googleMasterSheetId) {
+    logInfo(
+      "Profile acquirer sheet patch skipped — GOOGLE_MASTER_SHEET_ID not set",
+      "masterSheetIncrementalPublish"
+    );
+    return emptyResult;
+  }
+
+  if (patchedCreators.length === 0) {
+    return emptyResult;
+  }
+
+  const sheets = createGoogleSheetsClient(config);
+  const tabName = SHEET_TABS.latestMaster;
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.googleMasterSheetId,
+    range: `${tabName}!A:ZZ`,
+  });
+
+  const gridRows = (response.data.values ?? []) as string[][];
+  if (gridRows.length < 2) {
+    await publishMasterCreatorsTabFullOverwrite(config, patchedCreators);
+    logInfo(
+      "Profile acquirer sheet patch — tab empty, initialized with full write",
+      "masterSheetIncrementalPublish"
+    );
+    return {
+      published: true,
+      skippedNoChanges: false,
+      fullOverwrite: true,
+      rowsUpdated: patchedCreators.length,
+      rowsAppended: 0,
+      rowsRemoved: 0,
+      rowsUnchanged: 0,
+    };
+  }
+
+  const headerLabels = gridRows[0].map((header) => String(header).trim());
+  const rawSheet = await readMasterCreatorsSheetRawRows(config);
+  if (!rawSheet || rawSheet.rows.length === 0) {
+    await publishMasterCreatorsTabFullOverwrite(config, patchedCreators);
+    return {
+      published: true,
+      skippedNoChanges: false,
+      fullOverwrite: true,
+      rowsUpdated: patchedCreators.length,
+      rowsAppended: 0,
+      rowsRemoved: 0,
+      rowsUnchanged: 0,
+    };
+  }
+
+  const rowIndexByKey = new Map<string, number>();
+  for (const row of rawSheet.rows) {
+    const key = masterSheetIncrementalPublishMatchKey(row.creator);
+    if (key) {
+      rowIndexByKey.set(key, row.sheetRowNumber);
+    }
+  }
+
+  const rowUpdates: MasterSheetRowUpdatePlan[] = [];
+  let rowsUnchanged = 0;
+
+  for (const creator of patchedCreators) {
+    const key = masterSheetIncrementalPublishMatchKey(creator);
+    if (!key) {
+      continue;
+    }
+
+    const sheetRowNumber = rowIndexByKey.get(key);
+    if (!sheetRowNumber) {
+      logInfo(
+        `Profile acquirer patch skipped — creator not found on master sheet (${key})`,
+        "masterSheetIncrementalPublish"
+      );
+      continue;
+    }
+
+    const preparedCreator = masterSheetProfileAcquirerPreparePatchedCreator(
+      normalizeCreatorRecordForApp(creator)
+    );
+    const existingRow = gridRows[sheetRowNumber - 1] ?? [];
+    const patchedValues = sheetDataBuildPatchedRowWithHeaderLabels(preparedCreator, headerLabels, {
+      existingRow,
+      resolveHeaderField: readMasterCreatorsSheetResolveHeaderField,
+      overwriteFields: PROFILE_ACQUIRER_MASTER_SHEET_PATCH_EXTRA_FIELDS,
+    });
+
+    const existingChecksumIndex = headerLabels.findIndex(
+      (label) => readMasterCreatorsSheetResolveHeaderField(label) === "row_checksum"
+    );
+    const existingChecksum =
+      existingChecksumIndex >= 0 ? existingRow[existingChecksumIndex]?.trim() : "";
+    const incomingChecksum = preparedCreator.row_checksum ?? "";
+
+    if (existingChecksum && incomingChecksum && existingChecksum === incomingChecksum) {
+      rowsUnchanged += 1;
+      continue;
+    }
+
+    rowUpdates.push({
+      sheetRowNumber,
+      values: patchedValues,
+    });
+  }
+
+  if (rowUpdates.length === 0) {
+    logInfo(
+      `Profile acquirer sheet patch — no row diffs (${rowsUnchanged} unchanged)`,
+      "masterSheetIncrementalPublish"
+    );
+    return {
+      published: false,
+      skippedNoChanges: true,
+      fullOverwrite: false,
+      rowsUpdated: 0,
+      rowsAppended: 0,
+      rowsRemoved: 0,
+      rowsUnchanged,
+    };
+  }
+
+  await masterSheetIncrementalPublishApplyRowUpdates(config, tabName, rowUpdates);
+
+  logInfo(
+    `Profile acquirer sheet patch — ${rowUpdates.length} row(s) updated, ${rowsUnchanged} unchanged (existing column layout)`,
+    "masterSheetIncrementalPublish"
+  );
+
+  return {
+    published: true,
+    skippedNoChanges: false,
+    fullOverwrite: false,
+    rowsUpdated: rowUpdates.length,
+    rowsAppended: 0,
+    rowsRemoved: 0,
     rowsUnchanged,
   };
 }

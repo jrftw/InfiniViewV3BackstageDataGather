@@ -2,7 +2,7 @@
  * Filename: browser.ts
  * Purpose: Playwright browser lifecycle with saved Backstage auth state.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-27
  * Dependencies: playwright
  * Platform Compatibility: Windows server PC with Chromium
  */
@@ -12,7 +12,7 @@ import path from "path";
 import { chromium, Browser, BrowserContext, Page, BrowserContextOptions } from "playwright";
 import { GathererConfig } from "../config";
 import { gathererEnsureDir } from "../utils/files";
-import { logDebug, logInfo } from "../logging/logger";
+import { logDebug, logInfo, logWarn } from "../logging/logger";
 import {
   buildBackstageRegionProfile,
   buildBackstageChromiumArgs,
@@ -26,6 +26,42 @@ export interface BackstageBrowserSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
+}
+
+// MARK: - Auth State Validation
+
+function backstageBrowserIsValidAuthStateFile(authPath: string): boolean {
+  if (!fs.existsSync(authPath)) {
+    return false;
+  }
+
+  try {
+    const raw = fs.readFileSync(authPath, "utf-8").trim();
+    if (!raw) {
+      return false;
+    }
+
+    const parsed = JSON.parse(raw) as { cookies?: unknown; origins?: unknown };
+    return Array.isArray(parsed.cookies) || Array.isArray(parsed.origins);
+  } catch {
+    return false;
+  }
+}
+
+function backstageBrowserResolveUsableAuthStatePath(authPath: string): string | null {
+  if (!backstageBrowserIsValidAuthStateFile(authPath)) {
+    if (fs.existsSync(authPath)) {
+      fs.unlinkSync(authPath);
+      logWarn(
+        "Removed corrupt or empty Backstage auth file — will log in fresh",
+        "browser",
+        { authPath }
+      );
+    }
+    return null;
+  }
+
+  return authPath;
 }
 
 // MARK: - Launch Browser
@@ -62,8 +98,9 @@ export async function launchBackstageBrowser(
     ...buildBackstageRegionContextOptions(regionProfile),
   };
 
-  if (fs.existsSync(config.backstageAuthStatePath)) {
-    contextOptions.storageState = config.backstageAuthStatePath;
+  const usableAuthPath = backstageBrowserResolveUsableAuthStatePath(config.backstageAuthStatePath);
+  if (usableAuthPath) {
+    contextOptions.storageState = usableAuthPath;
     logInfo("Loaded saved Backstage auth state", "browser");
   } else {
     logInfo("No saved auth state — run npm run login first", "browser");

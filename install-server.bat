@@ -43,5 +43,6 @@ echo  Next steps:
 echo  1. Edit .env with Google credentials
 echo  2. Run: npm run login   (log into Backstage once)
 echo  3. Run: start-server.bat
+echo  4. Run: setup-server-reliability.bat  (auto-start + watchdog on server PC)
 echo ============================================
 pause

@@ -2,7 +2,7 @@
  * Filename: index.ts
  * Purpose: Application entry — starts server, scheduler, and git auto-update watcher.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-06-30
  * Platform Compatibility: Node.js 18+ (Windows server PC)
  */
 

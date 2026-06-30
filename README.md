@@ -77,6 +77,26 @@ setup-auto-update.bat
 
 Registers a Windows scheduled task as backup to the built-in git watcher.
 
+### 7. 24/7 reliability (server PC — run once)
+
+```bat
+setup-server-reliability.bat
+```
+
+This registers three Windows tasks:
+
+| Task | What it does |
+|------|----------------|
+| **InfiniViewBackstageGathererServer** | Starts `start-server.bat` at **boot** and **logon** |
+| **InfiniViewBackstageGathererWatchdog** | Every **5 min** — if port 3099 is down, restarts the server |
+| **InfiniViewBackstageGathererAutoUpdate** | Git pull backup every 15 min (optional) |
+
+Also set **Windows → Power → Sleep = Never** on the server PC.
+
+Copy `data/auth/backstage-auth.json` from your dev PC to the server (or run `npm run login` once on the server). The session file is not in git.
+
+After a restart, the app runs a **catch-up gather** (~3 min delay) if nothing succeeded yet today (`GATHERER_CATCHUP_ON_STARTUP=true`).
+
 ---
 
 ## Dev PC — push updates

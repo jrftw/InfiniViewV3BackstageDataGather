@@ -2,21 +2,28 @@
  * Filename: scheduler.ts
  * Purpose: Schedule gatherer runs — fixed times or randomized daily plan with jitter.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-25
+ * Last Modified: 2026-06-30
  * Dependencies: node-cron, gathererSchedulePlanner
  * Platform Compatibility: Node.js 18+
  */
 
+import path from "path";
 import cron, { ScheduledTask } from "node-cron";
 import { GathererConfig } from "./config";
 import { runGathererJob } from "./jobs/runGathererJob";
 import { getGathererMinutesSinceLastRunStarted } from "./jobs/runState";
+import { ImportSummaryData } from "./logging/importSummary";
 import { logInfo, logError } from "./logging/logger";
 import {
   GathererPlannedRun,
   gathererFilterFuturePlannedRuns,
   planGathererDailyRuns,
 } from "./scheduler/gathererSchedulePlanner";
+import { gathererFormatBusinessDateKey } from "./utils/dates";
+import { gathererReadJsonFile } from "./utils/files";
+
+const GATHERER_STARTUP_CATCHUP_DELAY_MS = 3 * 60 * 1000;
+const GATHERER_LAST_SUMMARY_RELATIVE_PATH = "data/logs/last-run-summary.json";
 
 // MARK: - Cron Helpers
 
@@ -140,11 +147,88 @@ function gathererScheduleMidnightReschedule(config: GathererConfig): void {
   }, delayMs);
 }
 
+// MARK: - Startup Catch-Up
+
+function gathererIsStartupCatchUpEnabled(): boolean {
+  return process.env.GATHERER_CATCHUP_ON_STARTUP !== "false";
+}
+
+function gathererReadLastRunSummary(projectRoot: string): ImportSummaryData | null {
+  return gathererReadJsonFile<ImportSummaryData>(
+    path.resolve(projectRoot, GATHERER_LAST_SUMMARY_RELATIVE_PATH)
+  );
+}
+
+function gathererHadSuccessfulRunToday(
+  config: GathererConfig,
+  summary: ImportSummaryData | null,
+  now: Date = new Date()
+): boolean {
+  if (!summary?.success || !summary.startedAt) {
+    return false;
+  }
+
+  const lastRunBusinessDay = gathererFormatBusinessDateKey(
+    config.timezone,
+    config.gathererDailyArchiveTime,
+    new Date(summary.startedAt)
+  );
+  const todayBusinessDay = gathererFormatBusinessDateKey(
+    config.timezone,
+    config.gathererDailyArchiveTime,
+    now
+  );
+
+  return lastRunBusinessDay === todayBusinessDay;
+}
+
+function gathererHasRemainingRunsToday(config: GathererConfig, now: Date = new Date()): boolean {
+  const futureRuns = gathererFilterFuturePlannedRuns(planGathererDailyRuns(config), config.timezone, now);
+  return futureRuns.length > 0;
+}
+
+async function gathererRunStartupCatchUp(config: GathererConfig): Promise<void> {
+  logInfo("Startup catch-up gatherer run triggered", "scheduler");
+  const result = await runGathererJob({ trigger: "manual" });
+  if (!result.success) {
+    logError("Startup catch-up gatherer run failed", "scheduler", { errors: result.errors });
+  }
+}
+
+export function scheduleGathererStartupCatchUp(config: GathererConfig): void {
+  if (!gathererIsStartupCatchUpEnabled()) {
+    logInfo("Startup catch-up disabled (GATHERER_CATCHUP_ON_STARTUP=false)", "scheduler");
+    return;
+  }
+
+  const lastSummary = gathererReadLastRunSummary(config.projectRoot);
+
+  if (gathererHadSuccessfulRunToday(config, lastSummary)) {
+    logInfo("Startup catch-up skipped — successful gather already completed today", "scheduler");
+    return;
+  }
+
+  if (!gathererHasRemainingRunsToday(config)) {
+    logInfo("Startup catch-up skipped — no remaining scheduled window today", "scheduler");
+    return;
+  }
+
+  logInfo(
+    `Startup catch-up scheduled in ${GATHERER_STARTUP_CATCHUP_DELAY_MS / 60_000} minutes (missed run recovery)`,
+    "scheduler"
+  );
+
+  setTimeout(() => {
+    void gathererRunStartupCatchUp(config);
+  }, GATHERER_STARTUP_CATCHUP_DELAY_MS);
+}
+
 // MARK: - Start Scheduler
 
 export function startGathererScheduler(config: GathererConfig): void {
   gathererScheduleRunsForToday(config);
   gathererScheduleMidnightReschedule(config);
+  scheduleGathererStartupCatchUp(config);
 }
 
 // Suggestions For Features and Additions Later:

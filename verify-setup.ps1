@@ -36,6 +36,12 @@ Write-Host "`nRunning preflight (Google + session, no export)...`n" -ForegroundC
 npm run preflight
 if ($LASTEXITCODE -ne 0) { $fail += 1 }
 
+Write-Host "`nChecking Windows scheduled tasks..." -ForegroundColor Cyan
+$gathererVerifyStartupTask = Get-ScheduledTask -TaskName "InfiniViewBackstageGathererServer" -ErrorAction SilentlyContinue
+$gathererVerifyWatchdogTask = Get-ScheduledTask -TaskName "InfiniViewBackstageGathererWatchdog" -ErrorAction SilentlyContinue
+Test-GathererStep "Startup scheduled task" ($null -ne $gathererVerifyStartupTask) "Run: .\setup-server-reliability.bat"
+Test-GathererStep "Watchdog scheduled task" ($null -ne $gathererVerifyWatchdogTask) "Run: .\setup-server-reliability.bat"
+
 Write-Host "`nChecking dashboard port 3099..." -ForegroundColor Cyan
 try {
     $status = Invoke-RestMethod -Uri "http://localhost:3099/api/status" -TimeoutSec 3 -ErrorAction Stop

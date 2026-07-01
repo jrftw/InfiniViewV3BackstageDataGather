@@ -1,5 +1,5 @@
 # Filename: gatherer-server-watchdog.ps1
-# Purpose: Ensure the gatherer HTTP server stays up — restart start-server.bat if port 3099 is down.
+# Purpose: Ensure the gatherer HTTP server stays up - restart start-server.bat if port 3099 is down.
 # Author: Kevin Doyle Jr. / Infinitum Imagery LLC
 # Last Modified: 2026-06-30
 # Platform Compatibility: Windows 10/11 server PC
@@ -55,13 +55,14 @@ function Start-GathererWatchdogServer {
 Set-Location $GathererWatchdogProjectRoot
 
 if (Test-GathererWatchdogServerHealthy) {
+    Write-GathererWatchdogLog "OK port $GathererWatchdogPort responding"
     exit 0
 }
 
 $gathererWatchdogExistingProcesses = @(Get-GathererWatchdogNodeServerProcesses)
 
 if ($gathererWatchdogExistingProcesses.Count -gt 0) {
-    Write-GathererWatchdogLog "WARN port $GathererWatchdogPort not responding but node dist/index.js is running — waiting for next check"
+    Write-GathererWatchdogLog "WARN port $GathererWatchdogPort not responding but node dist/index.js is running - waiting for next check"
     exit 0
 }
 

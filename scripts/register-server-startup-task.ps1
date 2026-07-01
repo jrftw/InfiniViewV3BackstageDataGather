@@ -1,5 +1,5 @@
 # Filename: register-server-startup-task.ps1
-# Purpose: Register Windows Scheduled Task — start gatherer at boot and user logon.
+# Purpose: Register Windows Scheduled Task - start gatherer at boot and user logon.
 # Author: Kevin Doyle Jr. / Infinitum Imagery LLC
 # Last Modified: 2026-06-30
 # Platform Compatibility: Windows 10/11 server PC
@@ -37,7 +37,7 @@ Register-ScheduledTask `
     -Settings $GathererStartupSettings `
     -Force | Out-Null
 
-Write-Host "Scheduled task '$GathererStartupTaskName' registered — starts start-server.bat at boot + logon."
+Write-Host "Scheduled task '$GathererStartupTaskName' registered - starts start-server.bat at boot + logon."
 Write-Host "Project: $GathererStartupProjectRoot"
 Write-Host "Tip: enable auto-logon on the server PC so Playwright can use the saved Backstage session."
 Write-Host "To remove: Unregister-ScheduledTask -TaskName '$GathererStartupTaskName' -Confirm:`$false"

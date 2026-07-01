@@ -1,9 +1,9 @@
-# InfiniView V3 Backstage Gatherer — verify production setup
+# InfiniView V3 Backstage Gatherer - verify production setup
 # Usage: .\verify-setup.ps1
 
 Set-Location $PSScriptRoot
 
-Write-Host "`nInfiniView V3 Gatherer — setup verification" -ForegroundColor Cyan
+Write-Host "`nInfiniView V3 Gatherer - setup verification" -ForegroundColor Cyan
 Write-Host "============================================`n" -ForegroundColor Cyan
 
 $fail = 0
@@ -19,7 +19,7 @@ function Test-GathererStep {
     }
 }
 
-Test-GathererStep "Node.js installed" (Get-Command node -ErrorAction SilentlyContinue) "Install Node.js 18+"
+Test-GathererStep "Node.js installed" ([bool](Get-Command node -ErrorAction SilentlyContinue)) "Install Node.js 18+"
 Test-GathererStep ".env exists" (Test-Path ".env") "Copy .env.example to .env and fill credentials"
 Test-GathererStep "dist/ built" (Test-Path "dist\index.js") "Run: npm run build"
 Test-GathererStep "Backstage session" (Test-Path "data\auth\backstage-auth.json") "Run: npm run login:test"
@@ -55,6 +55,6 @@ Write-Host ""
 if ($fail -eq 0) {
     Write-Host "All checks passed. Gatherer is ready for 24/7 operation." -ForegroundColor Green
 } else {
-    Write-Host "$fail check(s) failed — fix above, then run .\start-server.bat" -ForegroundColor Yellow
+    Write-Host "$fail check(s) failed - fix above, then run .\start-server.bat" -ForegroundColor Yellow
 }
 Write-Host ""

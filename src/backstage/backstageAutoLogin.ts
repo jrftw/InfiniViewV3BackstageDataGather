@@ -175,7 +175,15 @@ export async function performBackstageAutoLogin(page: Page, config: GathererConf
 
   logInfo("Starting Playwright credential login", "backstageAutoLogin");
 
-  await backstageOpenLoginForm(page, config);
+  const loginUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.loginPath}`;
+  logInfo(`Opening login page directly: ${loginUrl}`, "backstageAutoLogin");
+  await page.goto(loginUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
+  });
+  await waitForBackstagePageReady(page);
+  await dismissBackstagePopups(page);
+  await page.waitForTimeout(500);
 
   const emailInput = backstageRaceLocators(page, [
     BACKSTAGE_SELECTORS.loginEmailInput,
@@ -211,13 +219,14 @@ export async function performBackstageAutoLogin(page: Page, config: GathererConf
   });
 
   await submitButton.waitFor({ state: "visible", timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
+  await dismissBackstagePopups(page);
   await page.waitForTimeout(300);
 
   await Promise.all([
     page
       .waitForURL("**/*", { waitUntil: "domcontentloaded", timeout: 15_000 })
       .catch(() => null),
-    submitButton.click(),
+    submitButton.click({ force: true }),
   ]);
 
   await backstageVerifyLoginSuccess(page, config);

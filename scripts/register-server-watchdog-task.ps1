@@ -1,5 +1,5 @@
 # Filename: register-server-watchdog-task.ps1
-# Purpose: Register Windows Scheduled Task — health-check gatherer every 5 minutes.
+# Purpose: Register Windows Scheduled Task - health-check gatherer every 5 minutes.
 # Author: Kevin Doyle Jr. / Infinitum Imagery LLC
 # Last Modified: 2026-06-30
 # Platform Compatibility: Windows 10/11 server PC
@@ -19,11 +19,13 @@ $GathererWatchdogAction = New-ScheduledTaskAction `
     -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$GathererWatchdogScriptPath`"" `
     -WorkingDirectory $GathererWatchdogProjectRoot
 
+$GathererWatchdogRepeatDuration = New-TimeSpan -Days 3650
+
 $GathererWatchdogTrigger = New-ScheduledTaskTrigger `
     -Once `
     -At (Get-Date) `
     -RepetitionInterval (New-TimeSpan -Minutes $GathererWatchdogIntervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration $GathererWatchdogRepeatDuration
 
 $GathererWatchdogSettings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -39,7 +41,7 @@ Register-ScheduledTask `
     -Settings $GathererWatchdogSettings `
     -Force | Out-Null
 
-Write-Host "Scheduled task '$GathererWatchdogTaskName' registered — health check every $GathererWatchdogIntervalMinutes minutes."
+Write-Host "Scheduled task '$GathererWatchdogTaskName' registered - health check every $GathererWatchdogIntervalMinutes minutes."
 Write-Host "Logs: $GathererWatchdogProjectRoot/data/logs/watchdog.log"
 Write-Host "To remove: Unregister-ScheduledTask -TaskName '$GathererWatchdogTaskName' -Confirm:`$false"
 

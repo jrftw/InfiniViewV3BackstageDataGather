@@ -1,5 +1,5 @@
 # Filename: register-server-reliability-tasks.ps1
-# Purpose: One-shot setup — startup task, watchdog task, and optional auto-update task.
+# Purpose: One-shot setup - startup task, watchdog task, and optional auto-update task.
 # Author: Kevin Doyle Jr. / Infinitum Imagery LLC
 # Last Modified: 2026-06-30
 # Platform Compatibility: Windows 10/11 server PC
@@ -7,7 +7,7 @@
 $GathererReliabilityScriptsDir = $PSScriptRoot
 
 Write-Host ""
-Write-Host "InfiniView V3 Backstage Gatherer — 24/7 server reliability setup" -ForegroundColor Cyan
+Write-Host "InfiniView V3 Backstage Gatherer - 24/7 server reliability setup" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 

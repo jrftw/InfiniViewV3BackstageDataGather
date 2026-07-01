@@ -11,7 +11,7 @@ import path from "path";
 import { Page } from "playwright";
 import { GathererConfig } from "../config";
 import { BACKSTAGE_SELECTORS } from "./backstageSelectors";
-import { waitForBackstagePageReady } from "./backstagePageHelpers";
+import { waitForBackstagePageReady, dismissBackstagePopups } from "./backstagePageHelpers";
 import {
   backstageAutoLoginCredentialsConfigured,
   performBackstageAutoLogin,
@@ -34,6 +34,19 @@ export interface BackstageSessionProbeResult {
 
 export function backstageAuthFileExists(config: GathererConfig): boolean {
   return fs.existsSync(config.backstageAuthStatePath);
+}
+
+export function backstageAuthFileHasCookies(config: GathererConfig): boolean {
+  if (!backstageAuthFileExists(config)) {
+    return false;
+  }
+  try {
+    const raw = fs.readFileSync(config.backstageAuthStatePath, "utf-8");
+    const parsed = JSON.parse(raw) as { cookies?: unknown[] };
+    return Array.isArray(parsed.cookies) && parsed.cookies.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function backstagePageIsLoggedIn(page: Page): boolean {
@@ -69,6 +82,7 @@ export async function probeBackstageSession(
     timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
   });
   await waitForBackstagePageReady(page);
+  await dismissBackstagePopups(page);
 
   const currentUrl = page.url();
 
@@ -123,6 +137,27 @@ export async function ensureBackstageAuthenticated(
     await ensureBackstageUsPlusRegion(session.page, config);
     await saveBackstageAuthState(session, config.backstageAuthStatePath);
     return;
+  }
+
+  if (backstageAuthFileHasCookies(config)) {
+    logInfo(
+      "Saved auth file present but anchor list probe failed — retrying via portal overview",
+      "backstageSession",
+      { probeUrl: probe.currentUrl }
+    );
+    await session.page.goto(`${config.backstageBaseUrl}/portal/overview`, {
+      waitUntil: "domcontentloaded",
+      timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
+    });
+    await waitForBackstagePageReady(session.page);
+    await dismissBackstagePopups(session.page);
+
+    if (backstagePageIsLoggedIn(session.page)) {
+      logInfo("Backstage session restored from saved auth file", "backstageSession");
+      await ensureBackstageUsPlusRegion(session.page, config);
+      await saveBackstageAuthState(session, config.backstageAuthStatePath);
+      return;
+    }
   }
 
   if (backstageAutoLoginCredentialsConfigured(config)) {

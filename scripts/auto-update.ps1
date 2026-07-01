@@ -1,4 +1,4 @@
-# InfiniView V3 Backstage Gatherer — auto-update script for server PC
+# InfiniView V3 Backstage Gatherer - auto-update script for server PC
 # Pulls latest from GitHub, rebuilds, restarts server
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +16,7 @@ function Write-UpdateLog($Message) {
 
 try {
     if (-not (Test-Path (Join-Path $ProjectRoot ".git"))) {
-        Write-UpdateLog "Not a git repo — skipping update"
+        Write-UpdateLog "Not a git repo - skipping update"
         exit 0
     }
 

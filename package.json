@@ -4,7 +4,7 @@
   "description": "InfiniView V3 Backstage Gatherer — automated export, merge, and Google output",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "login": "tsx src/backstage/loginOnce.ts",

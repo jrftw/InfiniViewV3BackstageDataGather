@@ -15,6 +15,10 @@ function Write-UpdateLog($Message) {
 }
 
 try {
+    $nodeExe = (Get-Command node -ErrorAction Stop).Source
+    $nodeDir = Split-Path -Parent $nodeExe
+    $env:PATH = "$nodeDir;$env:PATH"
+
     if (-not (Test-Path (Join-Path $ProjectRoot ".git"))) {
         Write-UpdateLog "Not a git repo - skipping update"
         exit 0

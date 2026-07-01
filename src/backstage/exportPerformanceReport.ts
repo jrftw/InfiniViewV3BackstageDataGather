@@ -87,15 +87,22 @@ export async function exportBackstagePerformanceReport(
 
       await backstageClickSelectAllCreatorsIfNeeded(page, "Performance");
 
-      await backstageClickRace(
-        page,
-        [
-          BACKSTAGE_SELECTORS.performanceBulkExportButton,
-          "div.liveplatform-flex-item > button.semi-button-primary",
-          'div.liveplatform-flex-item button:has-text("Export")',
-        ],
-        "Performance — confirm bulk export"
-      );
+      await dismissBackstagePopups(page);
+      await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
+
+      const performanceExportButton = page
+        .getByRole("button", { name: /^Export$/i })
+        .or(page.locator(BACKSTAGE_SELECTORS.performanceBulkExportButton))
+        .or(page.locator('div.liveplatform-flex-item > button.semi-button-primary:has-text("Export")'))
+        .or(page.locator('div.liveplatform-flex-item > button.semi-button-primary'))
+        .first();
+
+      await performanceExportButton.waitFor({
+        state: "visible",
+        timeout: BACKSTAGE_SELECTORS.modalWaitTimeoutMs,
+      });
+      logInfo("Performance — confirm bulk export", "exportPerformance");
+      await performanceExportButton.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
 
       await page.waitForTimeout(3000);
       await downloadBackstageExportFromNotifications(page, targetPath, "performance");

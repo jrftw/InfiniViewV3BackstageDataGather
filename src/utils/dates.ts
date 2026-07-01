@@ -164,6 +164,9 @@ export function gathererUnixMonthStartInTimezone(
   return lo;
 }
 
+/** Backstage bulk export often fails when the current calendar month has almost no data yet. */
+const GATHERER_MIN_MONTH_SPAN_SECONDS = 24 * 60 * 60;
+
 export function gathererUnixPerformanceRange(
   timezone: string,
   mode: "month" | "rolling",
@@ -181,11 +184,26 @@ export function gathererUnixPerformanceRange(
     };
   }
 
-  const startTime = gathererUnixMonthStartInTimezone(timezone, refDate);
-  const monthKey = gathererFormatDateKeyInTimezone(timezone, refDate).slice(0, 7);
+  const currentMonthStart = gathererUnixMonthStartInTimezone(timezone, refDate);
+  let startTime = currentMonthStart;
+  let rangeEndTime = endTime;
+  let monthKey = gathererFormatDateKeyInTimezone(timezone, refDate).slice(0, 7);
+
+  if (rangeEndTime - startTime < GATHERER_MIN_MONTH_SPAN_SECONDS) {
+    const previousMonthRef = new Date((currentMonthStart - 3600) * 1000);
+    startTime = gathererUnixMonthStartInTimezone(timezone, previousMonthRef);
+    rangeEndTime = currentMonthStart - 1;
+    monthKey = gathererFormatDateKeyInTimezone(timezone, previousMonthRef).slice(0, 7);
+    return {
+      startTime,
+      endTime: rangeEndTime,
+      label: `calendar_month_${monthKey}_early_month_fallback`,
+    };
+  }
+
   return {
     startTime,
-    endTime,
+    endTime: rangeEndTime,
     label: `calendar_month_${monthKey}`,
   };
 }

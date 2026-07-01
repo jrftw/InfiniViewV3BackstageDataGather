@@ -164,9 +164,9 @@ Local files in `data/raw/` and `data/processed/`:
 
 - `backstage-performance-YYYY-MM-DD-HHmm.xlsx`
 - `backstage-management-YYYY-MM-DD-HHmm.xlsx`
-- `combined-creators-YYYY-MM-DD-HHmm.xlsx`
-- `combined-creators-YYYY-MM-DD-HHmm.csv`
-- `combined-creators-YYYY-MM-DD-HHmm.json`
+- `combined-creators-YYYY-MM-DD.xlsx` (date only — one per day)
+- `combined-creators-YYYY-MM-DD.csv`
+- `combined-creators-YYYY-MM-DD.json`
 - `import-summary-YYYY-MM-DD-HHmm.json`
 
 Also uploaded to Google Drive and written to Google Sheet tabs.

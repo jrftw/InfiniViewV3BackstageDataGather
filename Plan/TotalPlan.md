@@ -1,5 +1,7 @@
 # InfiniView V3 — Gather, Database, CRM, InfiniView, and InfiniBoard Setup Guide
 
+> **STATUS:** Platform vision doc — **not** gatherer implementation status. For ops truth, read `README.md`, `Plan/HOW_TO_RUN.md`, and `../../ONBOARDING.md`. MongoDB dual-write and profile acquirer are built (this doc predates them).
+
 Updated: June 25, 2026
 Project: InfiniView V3 / InfiniBoard / EspoCRM / Backstage Data
 

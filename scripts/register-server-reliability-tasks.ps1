@@ -24,7 +24,7 @@ if (Test-Path $gathererReliabilityAutoUpdateScript) {
 
 Write-Host "Done. Recommended on server PC:" -ForegroundColor Green
 Write-Host "  1. Windows Settings -> Power -> Sleep = Never"
-Write-Host "  2. Copy data\auth\backstage-auth.json from dev PC (or npm run login once)"
+Write-Host '  2. Copy data/auth/backstage-auth.json from dev PC (or npm run login once)'
 Write-Host "  3. Set BACKSTAGE_HEADLESS=true in .env"
 Write-Host "  4. Reboot once to confirm tasks start the server automatically"
 Write-Host ""

@@ -40,7 +40,7 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host "Scheduled task '$GathererWatchdogTaskName' registered — health check every $GathererWatchdogIntervalMinutes minutes."
-Write-Host "Logs: $GathererWatchdogProjectRoot\data\logs\watchdog.log"
+Write-Host "Logs: $GathererWatchdogProjectRoot/data/logs/watchdog.log"
 Write-Host "To remove: Unregister-ScheduledTask -TaskName '$GathererWatchdogTaskName' -Confirm:`$false"
 
 # Suggestions For Features and Additions Later:

@@ -20,6 +20,11 @@ import { normalizeBackstageManagementDateRange } from "./normalizeManagementDate
 import { CrmSheetEnrichmentDataField, crmEnrichmentBuildNullDefaults } from "./crmEnrichmentFields";
 import { gathererBasenameFilePath } from "../utils/gathererBasenameFilePath";
 import { ParsedBackstageRow } from "./parseWorkbook";
+import {
+  GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES,
+  GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES,
+  gathererBackstageFieldResolveRawRowValue,
+} from "./gathererBackstageFieldAliasCatalog";
 
 // MARK: - Combined Creator Type
 
@@ -122,15 +127,46 @@ function mergeGetString(row: ParsedBackstageRow, ...keys: string[]): string | nu
   return null;
 }
 
-function mergeGetDiamonds(row: ParsedBackstageRow, ...keys: string[]): number | null {
-  for (const key of keys) {
-    const val = normalizeBackstageDiamonds(row[key]);
-    if (val !== null) {
-      return val;
-    }
-  }
-  return null;
+function mergeGetDiamondsFromDefinition(
+  row: ParsedBackstageRow,
+  definition: (typeof GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES)[number]
+): number | null {
+  return normalizeBackstageDiamonds(gathererBackstageFieldResolveRawRowValue(row, definition));
 }
+
+function mergeGetDurationHoursFromDefinition(
+  row: ParsedBackstageRow,
+  definition: (typeof GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES)[number]
+): number | null {
+  return normalizeBackstageDurationHours(gathererBackstageFieldResolveRawRowValue(row, definition));
+}
+
+function mergeGetDaysFromDefinition(
+  row: ParsedBackstageRow,
+  definition: (typeof GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES)[number]
+): number | null {
+  return normalizeBackstageDays(gathererBackstageFieldResolveRawRowValue(row, definition));
+}
+
+function mergeGetStringFromDefinition(
+  row: ParsedBackstageRow,
+  definition: (typeof GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES)[number]
+): string | null {
+  const value = gathererBackstageFieldResolveRawRowValue(row, definition);
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const text = String(value).trim();
+  return text === "" || text === "-" ? null : text;
+}
+
+const GATHERER_MERGE_CREATOR_DATA_TOTAL_DIAMONDS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[0];
+const GATHERER_MERGE_CREATOR_DATA_LIVE_DURATION_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[1];
+const GATHERER_MERGE_CREATOR_DATA_VALID_DAYS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[2];
+const GATHERER_MERGE_CREATOR_DATA_DATA_PERIOD_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[3];
+const GATHERER_MERGE_MANAGE_DIAMONDS_L30D_DEF = GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES[0];
+const GATHERER_MERGE_MANAGE_LIVE_DURATION_L30D_DEF = GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES[1];
+const GATHERER_MERGE_MANAGE_VALID_DAYS_L30D_DEF = GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES[2];
 
 function mergeMapPerformanceRow(
   row: ParsedBackstageRow,
@@ -158,17 +194,19 @@ function mergeMapPerformanceRow(
     tier_last_month: null,
     relationship_status: null,
     last_live: null,
-    performance_data_period: mergeGetString(row, "data_period"),
-    total_diamonds: mergeGetDiamonds(
+    performance_data_period: mergeGetStringFromDefinition(
       row,
-      "total_diamonds",
-      "diamonds"
+      GATHERER_MERGE_CREATOR_DATA_DATA_PERIOD_DEF
     ),
-    diamonds_l30d: mergeGetDiamonds(row, "diamonds_in_l30d", "diamonds_l30d"),
+    total_diamonds: mergeGetDiamondsFromDefinition(row, GATHERER_MERGE_CREATOR_DATA_TOTAL_DIAMONDS_DEF),
+    diamonds_l30d: mergeGetDiamondsFromDefinition(row, GATHERER_MERGE_MANAGE_DIAMONDS_L30D_DEF),
     live_duration_l30d_hours: null,
     valid_live_days_l30d: null,
-    live_duration_total_hours: normalizeBackstageDurationHours(row.live_duration),
-    valid_live_days_total: normalizeBackstageDays(row.valid_go_live_days),
+    live_duration_total_hours: mergeGetDurationHoursFromDefinition(
+      row,
+      GATHERER_MERGE_CREATOR_DATA_LIVE_DURATION_DEF
+    ),
+    valid_live_days_total: mergeGetDaysFromDefinition(row, GATHERER_MERGE_CREATOR_DATA_VALID_DAYS_DEF),
     followers: null,
     videos: null,
     likes: null,
@@ -240,11 +278,13 @@ function mergeApplyManagementFields(record: CombinedCreatorRecord, row: ParsedBa
   record.relationship_status = mergeGetString(row, "relationship_status") ?? record.relationship_status;
   record.last_live = mergeGetString(row, "last_live") ?? record.last_live;
   record.diamonds_l30d =
-    mergeGetDiamonds(row, "diamonds_in_l30d", "diamonds_l30d") ?? record.diamonds_l30d;
+    mergeGetDiamondsFromDefinition(row, GATHERER_MERGE_MANAGE_DIAMONDS_L30D_DEF) ?? record.diamonds_l30d;
   record.live_duration_l30d_hours =
-    normalizeBackstageDurationHours(row.live_duration_in_l30d) ?? record.live_duration_l30d_hours;
+    mergeGetDurationHoursFromDefinition(row, GATHERER_MERGE_MANAGE_LIVE_DURATION_L30D_DEF) ??
+    record.live_duration_l30d_hours;
   record.valid_live_days_l30d =
-    normalizeBackstageDays(row.valid_go_live_days_in_l30d) ?? record.valid_live_days_l30d;
+    mergeGetDaysFromDefinition(row, GATHERER_MERGE_MANAGE_VALID_DAYS_L30D_DEF) ??
+    record.valid_live_days_l30d;
   record.followers = normalizeBackstageNumber(row.followers) ?? record.followers;
   record.videos = normalizeBackstageNumber(row.videos) ?? record.videos;
   record.likes = normalizeBackstageNumber(row.likes) ?? record.likes;

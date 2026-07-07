@@ -31,6 +31,14 @@ const GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE = "publishCreatorsToMongo";
 
 const GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE = 250;
 
+/** Non-monthly fields only — monthly totals must not carry stale prior-month values forward. */
+const GATHERER_MONGO_PRESERVE_ON_NULL_FIELDS = [
+  "matches",
+  "fan_club_total_diamonds",
+  "new_followers",
+  "live_streams",
+] as const;
+
 // MARK: Publish Result
 
 export interface GathererMongoPublishResult {
@@ -59,13 +67,26 @@ async function gathererMongoPublishUpsertCreators(
   let upsertedCount = 0;
 
   for (const chunk of gathererMongoPublishChunkArray(creatorDocuments, GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE)) {
-    const operations: AnyBulkWriteOperation<GathererMongoCreatorDocument>[] = chunk.map((document) => ({
-      updateOne: {
-        filter: { backstage_creator_id: document.backstage_creator_id },
-        update: { $set: document },
-        upsert: true,
-      },
-    }));
+    const operations: AnyBulkWriteOperation<GathererMongoCreatorDocument>[] = chunk.map((document) => {
+      const setFields: Record<string, unknown> = { ...document };
+
+      for (const preserveField of GATHERER_MONGO_PRESERVE_ON_NULL_FIELDS) {
+        const incomingValue = document[preserveField];
+        if (incomingValue === null || incomingValue === undefined) {
+          setFields[preserveField] = {
+            $ifNull: [`$${preserveField}`, null],
+          };
+        }
+      }
+
+      return {
+        updateOne: {
+          filter: { backstage_creator_id: document.backstage_creator_id },
+          update: [{ $set: setFields }],
+          upsert: true,
+        },
+      };
+    });
 
     const result = await collection.bulkWrite(operations, { ordered: false });
     upsertedCount += result.upsertedCount + result.modifiedCount + result.matchedCount;

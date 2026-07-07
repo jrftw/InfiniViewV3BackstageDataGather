@@ -9,6 +9,16 @@
 
 import * as XLSX from "xlsx";
 import { logDebug, logInfo } from "../logging/logger";
+import {
+  GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES,
+  GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES,
+  gathererBackstageFieldBuildParseWorkbookAliasMap,
+} from "./gathererBackstageFieldAliasCatalog";
+import {
+  parseWorkbookPerformanceColumnsMissingCriticalFields,
+  parseWorkbookPerformanceColumnsRemapRows,
+  ParseWorkbookPerformanceColumnMap,
+} from "./parseWorkbookPerformanceColumns";
 
 // MARK: - Types
 
@@ -23,6 +33,7 @@ export interface ParsedWorkbookResult {
   headers: string[];
   missingColumns: string[];
   rawHeaders: string[];
+  performanceColumnMap?: ParseWorkbookPerformanceColumnMap;
 }
 
 // MARK: - Header Normalization
@@ -45,13 +56,13 @@ const PARSE_WORKBOOK_COLUMN_ALIASES: Record<string, string[]> = {
   creator: ["creator", "creators", "creators_username", "tiktok_creator", "username", "handle"],
   creator_id: ["creator_id", "creatorid", "creators_id", "backstage_creator_id", "uid"],
   joined_time: ["joined_time", "joinedtime", "join_time", "joined_date", "join_date"],
-  total_diamonds: ["total_diamonds", "totaldiamonds", "total_diamond", "diamonds"],
-  diamonds_l30d: ["diamonds_l30d", "diamonds_in_l30d", "diamondsinl30d", "diamonds_in_last_30d"],
   notes: ["notes", "note", "creator_notes"],
   relationship_status: ["relationship_status", "relationshipstatus", "relationship"],
   graduation_status: ["graduation_status", "graduationstatus", "graduation"],
   tier_status: ["tier_status", "tierstatus", "tier"],
   days_since_joining: ["days_since_joining", "dayssincejoining", "days_joined"],
+  ...gathererBackstageFieldBuildParseWorkbookAliasMap(GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES),
+  ...gathererBackstageFieldBuildParseWorkbookAliasMap(GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES),
 };
 
 const PERFORMANCE_EXPECTED_COLUMNS = [
@@ -62,6 +73,9 @@ const PERFORMANCE_EXPECTED_COLUMNS = [
   "graduation_status",
   "tier_status",
   "total_diamonds",
+  "live_duration",
+  "valid_go_live_days",
+  "data_period",
 ];
 
 const MANAGEMENT_EXPECTED_COLUMNS = [
@@ -192,16 +206,36 @@ export function parseBackstageWorkbook(
   const expected =
     reportType === "performance" ? PERFORMANCE_EXPECTED_COLUMNS : MANAGEMENT_EXPECTED_COLUMNS;
 
-  const missingColumns = expected.filter(
+  let missingColumns = expected.filter(
     (col) => !parseWorkbookHeaderMatchesExpected(headers, col)
   );
+
+  let performanceColumnMap: ParseWorkbookPerformanceColumnMap | undefined;
+
+  if (reportType === "performance") {
+    performanceColumnMap = parseWorkbookPerformanceColumnsRemapRows(rows, headers, rawHeaders);
+    const missingCritical = parseWorkbookPerformanceColumnsMissingCriticalFields(performanceColumnMap);
+    for (const criticalField of missingCritical) {
+      if (!missingColumns.includes(criticalField)) {
+        missingColumns.push(criticalField);
+      }
+    }
+    for (const resolvedField of ["total_diamonds", "live_duration", "valid_go_live_days"] as const) {
+      if (
+        performanceColumnMap[resolvedField] &&
+        missingColumns.includes(resolvedField)
+      ) {
+        missingColumns = missingColumns.filter((column) => column !== resolvedField);
+      }
+    }
+  }
 
   if (missingColumns.length > 0) {
     logDebug(`Column match notes (${reportType}): missing ${missingColumns.join(", ")}`, "parseWorkbook");
     logDebug(`Parsed headers: ${headers.join(", ")}`, "parseWorkbook");
   }
 
-  return { rows, headers, missingColumns, rawHeaders };
+  return { rows, headers, missingColumns, rawHeaders, performanceColumnMap };
 }
 
 // MARK: - Core Column Check

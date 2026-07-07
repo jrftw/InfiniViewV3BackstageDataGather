@@ -74,7 +74,26 @@ export function validateGathererExportFiles(
     }
 
     if (perf.missingColumns.length > 0) {
-      warnings.push(`Performance optional columns not matched: ${perf.missingColumns.join(", ")}`);
+      const criticalPerformanceColumns = new Set([
+        "total_diamonds",
+        "live_duration",
+        "valid_go_live_days",
+      ]);
+      const criticalMissing = perf.missingColumns.filter((column) =>
+        criticalPerformanceColumns.has(column)
+      );
+      const optionalMissing = perf.missingColumns.filter(
+        (column) => !criticalPerformanceColumns.has(column)
+      );
+
+      if (criticalMissing.length > 0) {
+        errors.push(
+          `Performance export missing Creator Data columns: ${criticalMissing.join(", ")}. Raw headers: ${perf.rawHeaders.join(" | ")}`
+        );
+      }
+      if (optionalMissing.length > 0) {
+        warnings.push(`Performance optional columns not matched: ${optionalMissing.join(", ")}`);
+      }
     }
     if (mgmt.missingColumns.length > 0) {
       warnings.push(`Management optional columns not matched: ${mgmt.missingColumns.join(", ")}`);

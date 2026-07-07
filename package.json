@@ -18,6 +18,7 @@
     "pipeline": "npm run gather && npm run profile-acquire",
     "preflight": "tsx src/jobs/runPreflightCheck.ts",
     "preflight:check": "powershell -NoProfile -Command \"$env:GATHERER_FRIENDLY_LOGS='true'; npx tsx src/jobs/runPreflightCheck.ts\"",
+    "test:performance-columns": "tsx scripts/test-performance-columns-local.ts",
     "postinstall": "playwright install chromium"
   },
   "keywords": ["backstage", "gatherer", "infiniview"],

@@ -12,6 +12,7 @@ import path from "path";
 import * as XLSX from "xlsx";
 import { parseBackstageWorkbook } from "../src/processing/parseWorkbook";
 import { mergeBackstageReports } from "../src/processing/mergeBackstageReports";
+import { gathererBackstageExportShapeValidateCreatorDataFile } from "../src/processing/gathererBackstageExportShapeValidator";
 
 const TEST_PERFORMANCE_COLUMNS_LOCAL_DIR = path.resolve(
   process.cwd(),
@@ -81,6 +82,71 @@ const TEST_PERFORMANCE_COLUMNS_LOCAL_FIXTURES: TestPerformanceColumnsLocalFixtur
       "Valid LIVE days",
     ],
     performanceRow: ["@testcreator", "7359135855103475718", "40500", "63.88h", "20d"],
+  },
+  {
+    label: "classic-creator-data-july-2026-real-headers",
+    performanceHeaders: [
+      "Data period",
+      "Creator ID",
+      "Creator's username",
+      "Group",
+      "Creator Network manager",
+      "Join time",
+      "Days since joining",
+      "Diamonds",
+      "LIVE duration",
+      "Valid go LIVE days",
+      "New followers",
+      "LIVE streams",
+      "Diamonds last month",
+      "LIVE duration (hours) last month",
+      "Valid go LIVE days last month",
+      "Matches",
+      "Diamonds from matches",
+      "New LIVE creators",
+      "Diamonds from multi-guest",
+      "Diamonds from multi-guest (as host)",
+      "Diamonds from multi-guest (as guest)",
+      "Graduation status",
+      "Tier status",
+      "New fans",
+      "Fan Club total Diamonds",
+      "Fan contribution %",
+      "Total fans",
+      "Active fans from Fan Club",
+      "Status",
+    ],
+    performanceRow: [
+      "2026-07-01 ~ 2026-07-06",
+      "7359135855103475718",
+      "queenwidivybz",
+      "Not in a group",
+      "kdoyle@infinitumimagery.com",
+      "2023-08-05 00:11:00 (UTC+0)",
+      "1068",
+      "553978",
+      "23h 7m 8s",
+      "6",
+      "1200",
+      "15",
+      "2100000",
+      "180.5",
+      "28",
+      "22",
+      "5000",
+      "No",
+      "100",
+      "50",
+      "50",
+      "Non-new creator",
+      "Tier not maintained",
+      "100",
+      "535517",
+      "90.13%",
+      "5000",
+      "200",
+      "Active",
+    ],
   },
   {
     label: "hybrid-creator-data-l30d-labeled-period",
@@ -301,12 +367,78 @@ function testPerformanceColumnsLocalDiagnoseRealFile(performanceFilePath: string
   }, null, 2));
 }
 
+function testPerformanceColumnsLocalDiagnoseRealPair(
+  performanceFilePath: string,
+  managementFilePath: string
+): void {
+  const perfPath = path.resolve(performanceFilePath);
+  const mgmtPath = path.resolve(managementFilePath);
+  if (!fs.existsSync(perfPath) || !fs.existsSync(mgmtPath)) {
+    console.error(`File not found: perf=${perfPath} mgmt=${mgmtPath}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const shape = gathererBackstageExportShapeValidateCreatorDataFile(perfPath);
+  const perfParsed = parseBackstageWorkbook(perfPath, "performance");
+  const mgmtParsed = parseBackstageWorkbook(mgmtPath, "management");
+  const merged = mergeBackstageReports(
+    perfParsed.rows,
+    mgmtParsed.rows,
+    "real-file-test",
+    new Date().toISOString(),
+    perfPath,
+    mgmtPath
+  );
+  const sample = merged.combined.find((row) => row.backstage_creator_id === "7359135855103475718") ??
+    merged.combined[0] ??
+    null;
+
+  console.log(JSON.stringify({
+    creatorDataShape: shape,
+    performance: {
+      rowCount: perfParsed.rows.length,
+      missingColumns: perfParsed.missingColumns,
+      columnMap: perfParsed.performanceColumnMap ?? null,
+    },
+    management: {
+      rowCount: mgmtParsed.rows.length,
+      missingColumns: mgmtParsed.missingColumns,
+    },
+    mergedSample: sample
+      ? {
+          backstage_creator_id: sample.backstage_creator_id,
+          tiktok_username: sample.tiktok_username,
+          performance_data_period: sample.performance_data_period,
+          total_diamonds: sample.total_diamonds,
+          live_duration_total_hours: sample.live_duration_total_hours,
+          valid_live_days_total: sample.valid_live_days_total,
+          prior_month_diamonds: sample.prior_month_diamonds,
+          diamonds_l30d: sample.diamonds_l30d,
+          live_duration_l30d_hours: sample.live_duration_l30d_hours,
+          valid_live_days_l30d: sample.valid_live_days_l30d,
+          matches: sample.matches,
+          fan_club_total_diamonds: sample.fan_club_total_diamonds,
+          followers: sample.followers,
+          notes: sample.notes,
+          relationship_status: sample.relationship_status,
+          agent_email: sample.agent_email,
+        }
+      : null,
+  }, null, 2));
+}
+
 // MARK: - Main
 
 function testPerformanceColumnsLocalMain(): void {
-  const realFileArg = process.argv[2];
-  if (realFileArg) {
-    testPerformanceColumnsLocalDiagnoseRealFile(realFileArg);
+  const perfArg = process.argv[2];
+  const mgmtArg = process.argv[3];
+  if (perfArg && mgmtArg) {
+    testPerformanceColumnsLocalDiagnoseRealPair(perfArg, mgmtArg);
+    return;
+  }
+  if (perfArg) {
+    testPerformanceColumnsLocalDiagnoseRealFile(perfArg);
     return;
   }
 

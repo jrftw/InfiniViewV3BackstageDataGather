@@ -19,7 +19,7 @@ export interface GathererRetryOptions {
 // MARK: - Retry Wrapper
 
 export async function gathererRetry<T>(
-  operation: () => Promise<T>,
+  operation: (attemptIndex: number) => Promise<T>,
   options: GathererRetryOptions = {}
 ): Promise<T> {
   const maxAttempts = options.maxAttempts ?? 3;
@@ -30,7 +30,7 @@ export async function gathererRetry<T>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await operation();
+      return await operation(attempt);
     } catch (error) {
       lastError = error;
       logError(`Attempt ${attempt}/${maxAttempts} failed`, source, {

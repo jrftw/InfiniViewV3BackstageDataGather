@@ -237,15 +237,14 @@ function mergeMapPerformanceRow(
     promote_permission: null,
     subscription_status: null,
     invitation_type: null,
-    new_live_creator_this_month: deriveNewLiveCreatorThisMonthFromJoinedTime(
-      joinedTime,
-      timezone,
-      referenceDate
-    ),
+    new_live_creator_this_month:
+      mergeGetString(row, "new_live_creators") ??
+      deriveNewLiveCreatorThisMonthFromJoinedTime(joinedTime, timezone, referenceDate),
     ...crmEnrichmentBuildNullDefaults(),
-    prior_month_diamonds: null,
-    prior_month_valid_days: null,
-    prior_month_hours: null,
+    prior_month_diamonds: mergeGetString(row, "diamonds_last_month"),
+    prior_month_valid_days: mergeGetString(row, "valid_go_live_days_last_month"),
+    prior_month_hours: mergeGetString(row, "live_duration_hours_last_month"),
+    agent_email: mergeGetString(row, "creator_network_manager"),
     last_month_tier_index: null,
     current_tier_index: null,
     tier_rank_status: null,
@@ -319,6 +318,7 @@ function mergeApplyManagementFields(record: CombinedCreatorRecord, row: ParsedBa
   record.promote_permission = mergeGetString(row, "promote_permission") ?? record.promote_permission;
   record.subscription_status = mergeGetString(row, "subscription_status") ?? record.subscription_status;
   record.invitation_type = mergeGetString(row, "invitation_type") ?? record.invitation_type;
+  record.agent_email = mergeGetString(row, "creator_network_manager") ?? record.agent_email;
 }
 
 // MARK: - Merge Engine

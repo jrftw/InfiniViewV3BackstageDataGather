@@ -2,14 +2,14 @@
  * Filename: backstageUsPlusRegion.ts
  * Purpose: Ensure Backstage agency region is always US+ (auto-switch if wrong region).
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-07-07
  * Platform Compatibility: Playwright (Chromium)
  *
- * Recorded flow: header region dropdown → US+ option → Confirm modal
+ * Recorded flow: header region combobox (UK+ → US+) → Confirm modal
  */
 
 import path from "path";
-import { Page } from "playwright";
+import { Page, Locator } from "playwright";
 import { GathererConfig } from "../config";
 import { BACKSTAGE_SELECTORS } from "./backstageSelectors";
 import {
@@ -20,27 +20,66 @@ import {
 import { gathererEnsureDir } from "../utils/files";
 import { logInfo, logDebug, logError } from "../logging/logger";
 
-// MARK: - Region Detection
+// MARK: - Region Label Locators
 
-export async function readBackstageHeaderRegionLabel(page: Page): Promise<string> {
-  const regionSelectors = [
-    BACKSTAGE_SELECTORS.headerRegionSelectionSpan,
-    "#header div.semi-select-selection span",
-    "#header .semi-select-selection",
-    "div.headerTitle-O0dQx5",
+function backstageRegionLabelLocators(page: Page): Locator[] {
+  return [
+    page.locator(BACKSTAGE_SELECTORS.headerRegionSelectionSpan).first(),
+    page.locator("#header span.semi-select-selection-text").first(),
+    page.locator('[role="combobox"] span.semi-select-selection-text').first(),
+    page.locator(BACKSTAGE_SELECTORS.headerRegionTitle).first(),
+    page.locator("#header div.semi-select-selection span").first(),
   ];
+}
 
-  for (const selector of regionSelectors) {
-    const el = page.locator(selector).first();
-    if (await el.isVisible().catch(() => false)) {
-      const text = ((await el.textContent()) || "").trim();
+function backstageRegionComboboxLocators(page: Page): Locator[] {
+  return [
+    page.getByRole("combobox", { name: /selected/i }).first(),
+    page.locator(BACKSTAGE_SELECTORS.headerRegionCombobox).first(),
+    page.locator(BACKSTAGE_SELECTORS.headerRegionSelect).first(),
+    page.locator('[role="combobox"]').first(),
+    page.locator("div.semi-select-selection").first(),
+    page.locator(BACKSTAGE_SELECTORS.headerRegionSelectionSpan).first(),
+  ];
+}
+
+async function backstageReadFirstVisibleText(locators: Locator[]): Promise<string> {
+  for (const locator of locators) {
+    if (await locator.isVisible().catch(() => false)) {
+      const text = ((await locator.textContent()) || "").trim();
       if (text) {
         return text;
       }
     }
   }
-
   return "";
+}
+
+async function backstageClickFirstVisible(locators: Locator[], label: string): Promise<boolean> {
+  for (const locator of locators) {
+    if (await locator.isVisible().catch(() => false)) {
+      logInfo(`Clicking region control: ${label}`, "backstageUsPlusRegion");
+      await locator.scrollIntoViewIfNeeded().catch(() => undefined);
+      await locator.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
+      await pageWaitSettle(locator.page());
+      return true;
+    }
+  }
+  return false;
+}
+
+function pageWaitSettle(page: Page): Promise<void> {
+  return page.waitForTimeout(800);
+}
+
+// MARK: - Region Detection
+
+export async function readBackstageHeaderRegionLabel(page: Page): Promise<string> {
+  const label = await backstageReadFirstVisibleText(backstageRegionLabelLocators(page));
+  if (label) {
+    logDebug(`Read header region label: "${label}"`, "backstageUsPlusRegion");
+  }
+  return label;
 }
 
 export function backstageRegionLabelIsUsPlus(label: string, targetRegion: string): boolean {
@@ -68,21 +107,35 @@ export async function isBackstageUsPlusRegion(page: Page, config: GathererConfig
 // MARK: - Open Region Dropdown
 
 async function backstageOpenRegionDropdown(page: Page): Promise<void> {
-  const openSelectors = [
-    BACKSTAGE_SELECTORS.headerRegionSelectionSpan,
-    "#header div.semi-select-selection span",
-    "#header div.semi-select-selection",
-    "div.headerTitle-O0dQx5",
-    "#header .semi-select",
-  ];
+  const combobox = page.getByRole("combobox", { name: /selected/i }).first();
+  const comboboxVisible = await combobox
+    .waitFor({ state: "visible", timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
 
-  for (const selector of openSelectors) {
-    const trigger = page.locator(selector).first();
-    if (await trigger.isVisible().catch(() => false)) {
-      await trigger.click();
-      await page.waitForTimeout(600);
+  if (comboboxVisible) {
+    logInfo("Opening region combobox", "backstageUsPlusRegion");
+    await combobox.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
+    await pageWaitSettle(page);
+
+    const listboxVisible = await page
+      .locator('[role="listbox"] .semi-select-option, .semi-select-option')
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    if (listboxVisible) {
       return;
     }
+  }
+
+  const opened = await backstageClickFirstVisible(
+    backstageRegionComboboxLocators(page),
+    "region combobox fallback"
+  );
+
+  if (opened) {
+    return;
   }
 
   throw new Error("Backstage region dropdown trigger not found in header");
@@ -91,9 +144,18 @@ async function backstageOpenRegionDropdown(page: Page): Promise<void> {
 // MARK: - Select US+ Option
 
 async function backstageClickUsPlusRegionOption(page: Page, targetRegion: string): Promise<void> {
+  const roleOption = page.getByRole("option", { name: new RegExp(`^${targetRegion.replace("+", "\\+")}$`, "i") }).first();
+  if (await roleOption.isVisible().catch(() => false)) {
+    logInfo(`Selecting region option via role: ${targetRegion}`, "backstageUsPlusRegion");
+    await roleOption.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
+    await pageWaitSettle(page);
+    return;
+  }
+
   const optionSelectors = [
-    `.semi-select-option:has-text("${targetRegion}")`,
+    `.semi-select-option:has(.semi-select-option-text:has-text("${targetRegion}"))`,
     `.semi-select-option-text:has-text("${targetRegion}")`,
+    `.semi-select-option:has-text("${targetRegion}")`,
     `div[role="option"]:has-text("${targetRegion}")`,
     '.semi-select-option:has-text("US+")',
     '.semi-select-option-text:has-text("US+")',
@@ -135,6 +197,18 @@ async function backstageConfirmRegionChangeModal(page: Page): Promise<void> {
 
 // MARK: - Navigate To Region-Friendly Page
 
+async function backstageNavigateToRegionHeaderPage(page: Page, config: GathererConfig): Promise<void> {
+  const headerPageUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.managementListPath}`;
+  logDebug(`Opening page for region header: ${headerPageUrl}`, "backstageUsPlusRegion");
+
+  await page.goto(headerPageUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
+  });
+  await waitForBackstagePageReady(page);
+  await dismissBackstagePopups(page);
+}
+
 async function backstageNavigateForRegionSwitch(page: Page, config: GathererConfig): Promise<void> {
   const settlementUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.regionSwitchProbePath}`;
   logDebug(`Opening page for region switch: ${settlementUrl}`, "backstageUsPlusRegion");
@@ -160,6 +234,8 @@ export async function ensureBackstageUsPlusRegion(
 
   const targetRegion = config.backstageAgencyRegion;
 
+  await backstageNavigateToRegionHeaderPage(page, config);
+
   if (await isBackstageUsPlusRegion(page, config)) {
     logInfo(`Backstage already on ${targetRegion} — no switch needed`, "backstageUsPlusRegion");
     return;
@@ -173,15 +249,6 @@ export async function ensureBackstageUsPlusRegion(
     try {
       if (attempt > 1) {
         await backstageNavigateForRegionSwitch(page, config);
-      } else {
-        const onPortal = page.url().includes(BACKSTAGE_SELECTORS.loggedInUrlFragment);
-        if (!onPortal) {
-          await page.goto(`${config.backstageBaseUrl}/portal/`, {
-            waitUntil: "domcontentloaded",
-          });
-          await waitForBackstagePageReady(page);
-        }
-        await dismissBackstagePopups(page);
       }
 
       await backstageOpenRegionDropdown(page);

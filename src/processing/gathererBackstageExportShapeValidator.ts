@@ -61,7 +61,7 @@ export function gathererBackstageExportShapeValidateCreatorDataFile(
     profile = "hybrid_l30d_labeled";
   }
 
-  const valid = profile !== "invalid";
+  const valid = profile === "classic_analytics";
 
   return {
     profile,

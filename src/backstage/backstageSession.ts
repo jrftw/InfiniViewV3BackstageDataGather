@@ -2,7 +2,7 @@
  * Filename: backstageSession.ts
  * Purpose: Detect saved Backstage auth and ensure login (auto or manual).
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-07-07
  * Platform Compatibility: Playwright (Chromium)
  */
 
@@ -11,7 +11,7 @@ import path from "path";
 import { Page } from "playwright";
 import { GathererConfig } from "../config";
 import { BACKSTAGE_SELECTORS } from "./backstageSelectors";
-import { waitForBackstagePageReady, dismissBackstagePopups } from "./backstagePageHelpers";
+import { waitForBackstagePageReady, waitForBackstageLoginPageReady, dismissBackstagePopups } from "./backstagePageHelpers";
 import {
   backstageAutoLoginCredentialsConfigured,
   performBackstageAutoLogin,
@@ -177,6 +177,7 @@ export async function ensureBackstageAuthenticated(
     logInfo("No BACKSTAGE_EMAIL/PASSWORD in .env — waiting for manual login", "backstageSession");
     const loginUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.loginPath}`;
     await session.page.goto(loginUrl, { waitUntil: "domcontentloaded" });
+    await waitForBackstageLoginPageReady(session.page);
     await waitForBackstageManualLogin(session.page);
   } else {
     throw new Error(

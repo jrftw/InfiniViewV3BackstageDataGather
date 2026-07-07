@@ -2,7 +2,7 @@
  * Filename: backstagePageHelpers.ts
  * Purpose: Shared Playwright helpers — page ready, popups, locator race, URLs.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-07-07
  * Dependencies: playwright
  * Platform Compatibility: Playwright (Chromium)
  */
@@ -10,7 +10,8 @@
 import { Page, Locator } from "playwright";
 import { GathererConfig } from "../config";
 import { BACKSTAGE_SELECTORS } from "./backstageSelectors";
-import { logDebug, logInfo } from "../logging/logger";
+import { logDebug } from "../logging/logger";
+import { gathererLogStep, gathererLogStepClick, gathererLogStepOk, gathererLogStepSkip, gathererLogStepWait } from "../logging/gathererStepLogger";
 import { gathererUnixPerformanceRange } from "../utils/dates";
 
 // MARK: - Viewport
@@ -47,11 +48,23 @@ export function buildBackstagePerformanceDataUrlLegacy(
 // MARK: - Page Ready
 
 export async function waitForBackstagePageReady(page: Page): Promise<void> {
+  gathererLogStepWait("backstagePageHelpers", "Waiting for Backstage page ready (domcontentloaded + networkidle)");
   await page.waitForLoadState("domcontentloaded");
   await page.waitForLoadState("networkidle", { timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs }).catch(() => {
     logDebug("networkidle timeout — continuing", "backstagePageHelpers");
+    gathererLogStepSkip("backstagePageHelpers", "networkidle wait", "timed out — continuing");
   });
   await page.waitForTimeout(BACKSTAGE_SELECTORS.pageLoadWaitMs);
+  gathererLogStepOk("backstagePageHelpers", "Backstage page ready", page.url());
+}
+
+/** Lighter wait for marketing/login pages — avoids 90s networkidle on heavy landing pages. */
+export async function waitForBackstageLoginPageReady(page: Page): Promise<void> {
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForLoadState("load", { timeout: 30_000 }).catch(() => {
+    logDebug("login page load timeout — continuing", "backstagePageHelpers");
+  });
+  await page.waitForTimeout(3000);
 }
 
 // MARK: - Session Check (legacy helper — prefer backstageSession.ts)
@@ -67,6 +80,7 @@ export async function ensureBackstageLoggedIn(page: Page, config: GathererConfig
 // MARK: - Popup Dismissal
 
 export async function dismissBackstagePopups(page: Page): Promise<void> {
+  gathererLogStep("backstagePageHelpers", "Dismissing Backstage popups and modals");
   logDebug("Dismissing Backstage popups/modals", "backstagePageHelpers");
 
   const dismissSelectors = [
@@ -124,14 +138,15 @@ export async function backstageClickRace(
   selectors: string[],
   label: string
 ): Promise<void> {
+  gathererLogStepClick("backstagePageHelpers", label, selectors);
   const locator = backstageRaceLocators(page, selectors);
   await locator.waitFor({
     state: "visible",
     timeout: BACKSTAGE_SELECTORS.actionTimeoutMs,
   });
-  logDebug(`Click: ${label}`, "backstagePageHelpers");
   await locator.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
   await page.waitForTimeout(500);
+  gathererLogStepOk("backstagePageHelpers", `Click completed — ${label}`);
 }
 
 export async function backstageClickUnselectAllTwice(page: Page, label: string): Promise<void> {

@@ -9,7 +9,13 @@
 import { Page } from "playwright";
 import { BACKSTAGE_SELECTORS } from "./backstageSelectors";
 import { backstageClickRace } from "./backstagePageHelpers";
-import { logInfo, logDebug } from "../logging/logger";
+import {
+  gathererLogStep,
+  gathererLogStepOk,
+  gathererLogStepSkip,
+} from "../logging/gathererStepLogger";
+
+const BACKSTAGE_TRANSFER_MODAL_SOURCE = "backstageTransferModal";
 
 // MARK: - Modal Detection
 
@@ -61,7 +67,7 @@ export async function backstageOpenCustomizeModalIfNeeded(page: Page, label: str
   for (const selector of customizeTriggers) {
     const btn = page.locator(selector).first();
     if (await btn.isVisible().catch(() => false)) {
-      logInfo(`${label} — opening customize via ${selector}`, "backstageTransferModal");
+      gathererLogStep(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — opening customize modal`, { selector });
       await btn.click();
       await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
       if (await backstageTryWaitForTransferCustomizeModal(page, 15_000)) {
@@ -121,10 +127,10 @@ export async function backstageTransferClickSelectAllColumns(page: Page, label: 
     }
     const disabled = await btn.isDisabled().catch(() => false);
     if (disabled) {
-      logDebug(`${label} — Select all disabled (likely all selected): "${text}"`, "backstageTransferModal");
+      gathererLogStepSkip(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Select all disabled`, text);
       continue;
     }
-    logInfo(`${label} — clicking Select all columns: "${text}"`, "backstageTransferModal");
+    gathererLogStep(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — clicking Select all columns`, { buttonText: text });
     await btn.click();
     clicked = true;
     await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
@@ -146,7 +152,7 @@ export async function backstageTransferConfirmIfOpen(page: Page, label: string):
   for (const selector of confirmSelectors) {
     const btn = page.locator(selector).first();
     if (await btn.isVisible().catch(() => false)) {
-      logInfo(`${label} — Confirm`, "backstageTransferModal");
+      gathererLogStep(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Confirm column customize modal`);
       await btn.click();
       await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
       return true;
@@ -177,13 +183,13 @@ async function backstageTransferClickUnselectAllTwice(page: Page, label: string)
       if (disabled) {
         continue;
       }
-      logInfo(`${label} — Unselect all (${pass + 1}/2)`, "backstageTransferModal");
+      gathererLogStep(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Unselect all`, { pass: pass + 1 });
       await btn.click();
       clicked = true;
       await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
     }
     if (!clicked) {
-      logDebug(`${label} — Unselect all (${pass + 1}/2) not available`, "backstageTransferModal");
+      gathererLogStepSkip(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Unselect all`, `pass ${pass + 1}/2 not available`);
     }
   }
 }
@@ -200,7 +206,11 @@ export async function backstageEnsurePerformanceCreatorDataColumnsSelected(
     (await backstageOpenCustomizeModalIfNeeded(page, label));
 
   if (!modalOpen) {
-    logInfo(`${label} — no column customize modal; continuing to export`, "backstageTransferModal");
+    gathererLogStepSkip(
+      BACKSTAGE_TRANSFER_MODAL_SOURCE,
+      `${label} — column customize modal`,
+      "not open — continuing to export"
+    );
     return;
   }
 
@@ -210,7 +220,7 @@ export async function backstageEnsurePerformanceCreatorDataColumnsSelected(
 
   await backstageTransferClickSelectAllColumns(page, label);
   await backstageTransferConfirmIfOpen(page, label);
-  logInfo(`${label} — performance column customize step done`, "backstageTransferModal");
+  gathererLogStepOk(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — performance column customize step done`);
 }
 
 // MARK: - Smart Column Ensure (Select all if needed — skip Unselect all)
@@ -224,7 +234,11 @@ export async function backstageEnsureAllExportColumnsSelected(
     (await backstageOpenCustomizeModalIfNeeded(page, label));
 
   if (!modalOpen) {
-    logInfo(`${label} — no column customize modal; continuing to export`, "backstageTransferModal");
+    gathererLogStepSkip(
+      BACKSTAGE_TRANSFER_MODAL_SOURCE,
+      `${label} — column customize modal`,
+      "not open — continuing to export"
+    );
     return;
   }
 
@@ -233,11 +247,15 @@ export async function backstageEnsureAllExportColumnsSelected(
   if (needsSelectAll) {
     await backstageTransferClickSelectAllColumns(page, label);
   } else {
-    logInfo(`${label} — all columns already selected (Select all not needed)`, "backstageTransferModal");
+    gathererLogStepSkip(
+      BACKSTAGE_TRANSFER_MODAL_SOURCE,
+      `${label} — Select all columns`,
+      "all columns already selected"
+    );
   }
 
   await backstageTransferConfirmIfOpen(page, label);
-  logInfo(`${label} — column customize step done`, "backstageTransferModal");
+  gathererLogStepOk(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — column customize step done`);
 }
 
 // MARK: - Bulk Creator Select All (export popup — Select all (2051))
@@ -249,12 +267,12 @@ export async function backstageClickSelectAllCreatorsIfNeeded(page: Page, label:
   if (await creatorSelectAll.isVisible().catch(() => false)) {
     const disabled = await creatorSelectAll.isDisabled().catch(() => false);
     if (!disabled) {
-      logInfo(`${label} — Select all creators`, "backstageTransferModal");
+      gathererLogStep(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Select all creators (bulk export modal)`);
       await creatorSelectAll.click();
       await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
       return;
     }
-    logInfo(`${label} — creators already selected`, "backstageTransferModal");
+    gathererLogStepSkip(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Select all creators`, "already selected");
     return;
   }
 
@@ -267,13 +285,17 @@ export async function backstageClickSelectAllCreatorsIfNeeded(page: Page, label:
     const btn = page.locator(selector).first();
     if (await btn.isVisible().catch(() => false)) {
       await btn.click();
-      logInfo(`${label} — Select all creators (fallback)`, "backstageTransferModal");
+      gathererLogStep(BACKSTAGE_TRANSFER_MODAL_SOURCE, `${label} — Select all creators (fallback selector)`);
       await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
       return;
     }
   }
 
-  logDebug(`${label} — no Select all creators button visible; continuing`, "backstageTransferModal");
+  gathererLogStepSkip(
+    BACKSTAGE_TRANSFER_MODAL_SOURCE,
+    `${label} — Select all creators button`,
+    "not visible — continuing"
+  );
 }
 
 // Suggestions For Features and Additions Later:

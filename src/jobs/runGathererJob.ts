@@ -2,13 +2,14 @@
  * Filename: runGathererJob.ts
  * Purpose: Main gatherer job — export, merge, enrich, output.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-07-07
  * Dependencies: All gatherer modules
  * Platform Compatibility: Node.js 18+ (Windows server PC)
  */
 
 import { loadGathererConfig } from "../config";
 import { logInfo, logError } from "../logging/logger";
+import { gathererResetStepCounter } from "../logging/gathererStepLogger";
 import { gathererFormatRunTimestamp, gathererGenerateRunId } from "../utils/dates";
 import { gathererEnsureDir } from "../utils/files";
 import { runBackstageExports } from "../backstage/backstageExportRunner";
@@ -27,6 +28,9 @@ import {
 } from "./gathererRunContext";
 import { runGathererPreflightCheck } from "./preflightCheck";
 import {
+  gathererSendFailureEmailNotification,
+} from "../notifications/gathererFailureEmailNotifier";
+import {
   gathererLogBanner,
   gathererLogDone,
   gathererLogFatal,
@@ -37,6 +41,30 @@ import {
   gathererLogWarn,
   gathererLogWorking,
 } from "../logging/friendlyLog";
+
+// MARK: - Failure Notification
+
+async function gathererNotifyRunFailure(
+  config: ReturnType<typeof loadGathererConfig>,
+  params: {
+    runId?: string;
+    startedAt?: string;
+    trigger?: string;
+    dailySheetTabName?: string;
+    errors: string[];
+    phase?: string;
+  }
+): Promise<void> {
+  await gathererSendFailureEmailNotification(config, {
+    runId: params.runId,
+    startedAt: params.startedAt,
+    finishedAt: new Date().toISOString(),
+    trigger: params.trigger,
+    dailySheetTabName: params.dailySheetTabName,
+    errors: params.errors,
+    phase: params.phase,
+  });
+}
 
 // MARK: - Job Result
 
@@ -57,6 +85,7 @@ export async function runGathererJob(
   }
 
   const config = loadGathererConfig();
+  gathererResetStepCounter();
   const runContext = buildGathererRunContext(config, options);
   const runId = gathererGenerateRunId();
   const startedAt = new Date().toISOString();
@@ -75,6 +104,13 @@ export async function runGathererJob(
   if (process.env.GATHERER_SKIP_PREFLIGHT !== "true") {
     const preflight = await runGathererPreflightCheck(config);
     if (!preflight.ok) {
+      gathererLogFatal("Gatherer run failed", preflight.blockingErrors.join("; "));
+      await gathererNotifyRunFailure(config, {
+        trigger: runContext.runTrigger,
+        dailySheetTabName: runContext.dailySheetTabName,
+        errors: preflight.blockingErrors,
+        phase: "preflight",
+      });
       releaseGathererRunLock();
       return {
         success: false,
@@ -203,6 +239,15 @@ export async function runGathererJob(
 
     setGathererLastSummary(failedSummary);
     jobResult = { success: false, errors };
+
+    await gathererNotifyRunFailure(config, {
+      runId,
+      startedAt,
+      trigger: runContext.runTrigger,
+      dailySheetTabName: runContext.dailySheetTabName,
+      errors,
+      phase: "gatherer",
+    });
   } finally {
     releaseGathererRunLock();
   }

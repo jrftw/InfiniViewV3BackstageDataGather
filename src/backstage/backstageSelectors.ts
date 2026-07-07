@@ -31,6 +31,8 @@ export const BACKSTAGE_SELECTORS = {
 
   headerRegionSelectionSpan: "#header div.semi-select-selection span",
   headerRegionTitle: "div.headerTitle-O0dQx5",
+  headerRegionCombobox: '#header [role="combobox"], #header div.semi-select',
+  headerRegionSelect: "#header div.semi-select, #header .semi-select",
   regionChangeConfirmButton: 'div.semi-modal-footer button:has-text("Confirm")',
 
   viewportWidth: 2560,
@@ -70,7 +72,7 @@ export const BACKSTAGE_SELECTORS = {
   performanceSelectAllBulk:
     'div.liveplatform-flex-item > button:nth-of-type(1):has-text("Select all"), div.liveplatform-flex-item button:has-text("Select all")',
   performanceBulkExportButton:
-    "div.liveplatform-flex-item > button.semi-button-primary > span, div.liveplatform-flex-item button.semi-button-primary",
+    'div.liveplatform-flex-item > button.semi-button-primary:has-text("Export"), div.liveplatform-flex-item > button.semi-button-primary',
 
   notificationBellButton: "button.bell-wSXdfB, #header button:has(svg)",
   notificationViewButton: 'button:has-text("View"), div.semi-notification-notice-content button',

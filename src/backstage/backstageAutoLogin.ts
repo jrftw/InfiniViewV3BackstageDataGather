@@ -1,16 +1,16 @@
 /**
  * Filename: backstageAutoLogin.ts
- * Purpose: Full Playwright Backstage login — home → login button → credentials → popups.
+ * Purpose: Full Playwright Backstage login — /login/ → credentials → US+ region → save session.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-07-07
  * Platform Compatibility: Playwright (Chromium)
  *
- * Flow (matches InvitesTrialsQuitMetrics / BACKSTAGE_PLAYWRIGHT_LOGIN guide):
- * 1. https://live-backstage.tiktok.com/
- * 2. Click login button (or use /login/ fallback)
+ * Flow:
+ * 1. https://live-backstage.tiktok.com/login/ (US locale from browser profile)
+ * 2. Ensure login modal + Email tab visible (do NOT dismiss login modal as a popup)
  * 3. Fill #email + #password from .env
- * 4. Submit
- * 5. Clear post-login popups
+ * 4. Submit and wait for /portal/
+ * 5. Clear post-login popups and switch to US+ agency region
  */
 
 import path from "path";
@@ -19,14 +19,15 @@ import { GathererConfig } from "../config";
 import { BACKSTAGE_SELECTORS } from "./backstageSelectors";
 import {
   waitForBackstagePageReady,
+  waitForBackstageLoginPageReady,
   dismissBackstagePopups,
   backstageRaceLocators,
 } from "./backstagePageHelpers";
 import { clearBackstagePostLoginPopups } from "./backstageLoginPopups";
 import { ensureBackstageUsPlusRegion } from "./backstageUsPlusRegion";
-import { backstagePageIsLoggedIn } from "./backstageSession";
+import { backstagePageIsLoggedIn, backstageAuthFileHasCookies } from "./backstageSession";
 import { gathererEnsureDir } from "../utils/files";
-import { logInfo, logError } from "../logging/logger";
+import { logInfo, logError, logDebug } from "../logging/logger";
 
 // MARK: - Credentials Check
 
@@ -73,57 +74,126 @@ export async function navigateBackstageHome(page: Page, config: GathererConfig):
   await waitForBackstagePageReady(page);
 }
 
-// MARK: - Open Login Form
+// MARK: - Login Page Navigation
 
-async function backstageOpenLoginForm(page: Page, config: GathererConfig): Promise<void> {
-  const emailAlreadyVisible = await page
-    .locator(BACKSTAGE_SELECTORS.loginEmailInput)
-    .isVisible()
-    .catch(() => false);
-
-  if (emailAlreadyVisible) {
-    logInfo("Login form already visible", "backstageAutoLogin");
-    return;
-  }
-
-  if (page.url().includes(BACKSTAGE_SELECTORS.loginUrlFragment)) {
-    logInfo("Already on login URL", "backstageAutoLogin");
-    return;
-  }
-
-  const homeButtonVisible = await page
-    .locator(BACKSTAGE_SELECTORS.homeLoginButton)
-    .first()
-    .isVisible()
-    .catch(() => false);
-
-  if (homeButtonVisible) {
-    logInfo("Clicking home login button", "backstageAutoLogin");
-    await page.locator(BACKSTAGE_SELECTORS.homeLoginButton).first().click();
-    await page.waitForTimeout(800);
-    return;
-  }
-
-  const roleLogin = page.getByRole("button", { name: /log in/i }).first();
-  if (await roleLogin.isVisible().catch(() => false)) {
-    logInfo('Clicking "Log in" button by role', "backstageAutoLogin");
-    await roleLogin.click();
-    await page.waitForTimeout(800);
-    return;
-  }
-
+async function backstageNavigateToLoginPage(page: Page, config: GathererConfig): Promise<void> {
   const loginUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.loginPath}`;
-  logInfo(`Login button not found — opening ${loginUrl}`, "backstageAutoLogin");
+  logInfo(`Opening Backstage login page: ${loginUrl}`, "backstageAutoLogin");
+
   await page.goto(loginUrl, {
     waitUntil: "domcontentloaded",
     timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
   });
-  await waitForBackstagePageReady(page);
+  await waitForBackstageLoginPageReady(page);
+}
+
+// MARK: - Ensure Login Form Visible
+
+async function backstageLoginEmailFieldVisible(page: Page): Promise<boolean> {
+  return page
+    .locator(BACKSTAGE_SELECTORS.loginEmailInput)
+    .isVisible()
+    .catch(() => false);
+}
+
+async function backstageEnsureLoginFormVisible(page: Page): Promise<void> {
+  const emailLocator = page.locator(BACKSTAGE_SELECTORS.loginEmailInput);
+
+  const emailAppeared = await emailLocator
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (emailAppeared) {
+    logDebug("Login email field visible", "backstageAutoLogin");
+    return;
+  }
+
+  const emailTab = page.getByText(/^Email$/i).first();
+  if (await emailTab.isVisible().catch(() => false)) {
+    logInfo('Selecting "Email" login tab', "backstageAutoLogin");
+    await emailTab.click();
+    await page.waitForTimeout(800);
+    if (await backstageLoginEmailFieldVisible(page)) {
+      return;
+    }
+  }
+
+  const headerLoginButtons = page.getByRole("button", { name: /^Log in$/i });
+  const headerLoginCount = await headerLoginButtons.count().catch(() => 0);
+
+  for (let i = 0; i < headerLoginCount; i++) {
+    const button = headerLoginButtons.nth(i);
+    if (!(await button.isVisible().catch(() => false))) {
+      continue;
+    }
+    logInfo('Clicking "Log in" to open credential form', "backstageAutoLogin");
+    await button.click();
+    await page.waitForTimeout(1000);
+    if (await emailLocator.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false)) {
+      return;
+    }
+  }
+
+  const homeLoginButton = page.locator(BACKSTAGE_SELECTORS.homeLoginButton).first();
+  if (await homeLoginButton.isVisible().catch(() => false)) {
+    logInfo("Clicking home login button", "backstageAutoLogin");
+    await homeLoginButton.click();
+    await page.waitForTimeout(1000);
+    if (await backstageLoginEmailFieldVisible(page)) {
+      return;
+    }
+  }
+
+  if (await backstageLoginEmailFieldVisible(page)) {
+    return;
+  }
+
+  throw new Error(
+    "Backstage login form not visible — open https://live-backstage.tiktok.com/login/ manually or check for CAPTCHA"
+  );
+}
+
+// MARK: - US English On Login Page
+
+async function backstageEnsureLoginPageUsEnglish(page: Page): Promise<void> {
+  const languageButton = page.getByRole("button", { name: /language/i }).first();
+  if (!(await languageButton.isVisible().catch(() => false))) {
+    logDebug("Language button not found on login page — relying on browser locale", "backstageAutoLogin");
+    return;
+  }
+
+  const buttonText = ((await languageButton.textContent()) || "").trim();
+  if (/english|^en\b/i.test(buttonText)) {
+    logDebug(`Login page language already English (${buttonText})`, "backstageAutoLogin");
+    return;
+  }
+
+  logInfo(`Setting login page language to English (was: ${buttonText || "unknown"})`, "backstageAutoLogin");
+  await languageButton.click();
+  await page.waitForTimeout(400);
+
+  const englishOption = page
+    .locator('.semi-select-option:has-text("English"), [role="option"]:has-text("English")')
+    .first();
+  if (await englishOption.isVisible().catch(() => false)) {
+    await englishOption.click();
+    await waitForBackstageLoginPageReady(page);
+  }
 }
 
 // MARK: - Verify Login Success
 
 async function backstageVerifyLoginSuccess(page: Page, config: GathererConfig): Promise<void> {
+  await page
+    .waitForURL(
+      (url) =>
+        url.href.includes(BACKSTAGE_SELECTORS.loggedInUrlFragment) &&
+        !url.href.includes(BACKSTAGE_SELECTORS.loginUrlFragment),
+      { timeout: 30_000, waitUntil: "domcontentloaded" }
+    )
+    .catch(() => null);
+
   await page.waitForTimeout(BACKSTAGE_SELECTORS.postLoginSettleMs);
 
   const url = page.url();
@@ -132,19 +202,17 @@ async function backstageVerifyLoginSuccess(page: Page, config: GathererConfig): 
     throw new Error(`Login verification failed — unexpected URL: ${url}`);
   }
 
-  const emailStillVisible = await page
-    .locator(BACKSTAGE_SELECTORS.loginEmailInput)
-    .isVisible()
-    .catch(() => false);
-
-  if (emailStillVisible) {
-    await saveBackstageAutoLoginFailureScreenshot(page, config);
-    throw new Error(
-      "Login verification failed — email field still visible (bad credentials, CAPTCHA, or 2FA)"
-    );
+  if (url.includes(BACKSTAGE_SELECTORS.loginUrlFragment)) {
+    const emailStillVisible = await backstageLoginEmailFieldVisible(page);
+    if (emailStillVisible) {
+      await saveBackstageAutoLoginFailureScreenshot(page, config);
+      throw new Error(
+        "Login verification failed — still on login page (bad credentials, CAPTCHA, or 2FA)"
+      );
+    }
   }
 
-  logInfo("Login verified on live-backstage.tiktok.com", "backstageAutoLogin");
+  logInfo("Login verified — Backstage portal reachable", "backstageAutoLogin", { url });
 }
 
 async function saveBackstageAutoLoginFailureScreenshot(page: Page, config: GathererConfig): Promise<void> {
@@ -154,54 +222,68 @@ async function saveBackstageAutoLoginFailureScreenshot(page: Page, config: Gathe
   logError("Login failure screenshot saved", "backstageAutoLogin", { screenshotPath });
 }
 
-// MARK: - Full Auto Login
+// MARK: - Fill Credential Form
 
-export async function performBackstageAutoLogin(page: Page, config: GathererConfig): Promise<void> {
-  if (!backstageAutoLoginCredentialsConfigured(config)) {
-    throw new Error(
-      "Set BACKSTAGE_EMAIL and BACKSTAGE_PASSWORD (or TIKTOK_EMAIL / TIKTOK_PASSWORD) in .env"
-    );
-  }
+function backstageResolveLoginSubmitButton(page: Page) {
+  const formScopedSubmit = page
+    .locator("form")
+    .filter({ has: page.locator(BACKSTAGE_SELECTORS.loginEmailInput) })
+    .locator('button[type="submit"]')
+    .first();
 
-  await navigateBackstageHome(page, config);
+  return backstageRaceLocators(page, [
+    'button[type="submit"].semi-button-block',
+    'button[type="submit"]:has-text("Log in")',
+    BACKSTAGE_SELECTORS.loginSubmitBlock,
+    BACKSTAGE_SELECTORS.loginSubmitButton,
+  ]);
+}
 
-  if (await backstageLoginIsAuthenticated(page)) {
-    logInfo("Session already valid — skipping credential form", "backstageAutoLogin");
-    await clearBackstagePostLoginPopups(page);
-    await dismissBackstagePopups(page);
-    await ensureBackstageUsPlusRegion(page, config);
-    return;
-  }
+async function backstageClickLoginSubmit(page: Page, passwordInput: ReturnType<typeof backstageRaceLocators>): Promise<void> {
+  const submitButton = backstageResolveLoginSubmitButton(page);
 
-  logInfo("Starting Playwright credential login", "backstageAutoLogin");
+  await submitButton.waitFor({ state: "visible", timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
+  await submitButton.scrollIntoViewIfNeeded().catch(() => undefined);
+  await page.waitForTimeout(300);
 
-  const loginUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.loginPath}`;
-  logInfo(`Opening login page directly: ${loginUrl}`, "backstageAutoLogin");
-  await page.goto(loginUrl, {
-    waitUntil: "domcontentloaded",
-    timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
+  logInfo('Clicking form "Log in" submit button', "backstageAutoLogin");
+
+  const navigationPromise = page
+    .waitForURL(
+      (url) =>
+        url.href.includes(BACKSTAGE_SELECTORS.loggedInUrlFragment) ||
+        !url.href.includes(BACKSTAGE_SELECTORS.loginUrlFragment),
+      { timeout: 30_000, waitUntil: "domcontentloaded" }
+    )
+    .catch(() => null);
+
+  await submitButton.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs }).catch(async () => {
+    logInfo("Submit click missed — pressing Enter on password field", "backstageAutoLogin");
+    await passwordInput.press("Enter");
   });
-  await waitForBackstagePageReady(page);
-  await dismissBackstagePopups(page);
-  await page.waitForTimeout(500);
 
+  await navigationPromise;
+
+  if (page.url().includes(BACKSTAGE_SELECTORS.loginUrlFragment)) {
+    logInfo("Still on login page — retrying submit via Enter key", "backstageAutoLogin");
+    await passwordInput.press("Enter");
+    await page.waitForTimeout(BACKSTAGE_SELECTORS.postLoginSettleMs);
+  }
+}
+
+async function backstageFillLoginCredentials(page: Page, config: GathererConfig): Promise<void> {
   const emailInput = backstageRaceLocators(page, [
     BACKSTAGE_SELECTORS.loginEmailInput,
     'input[type="email"]',
+    'input[placeholder*="email" i]',
     '[aria-label="Enter email address"]',
   ]);
 
   const passwordInput = backstageRaceLocators(page, [
     BACKSTAGE_SELECTORS.loginPasswordInput,
     'input[type="password"]',
+    'input[placeholder*="password" i]',
     '[aria-label="Enter password"]',
-  ]);
-
-  const submitButton = backstageRaceLocators(page, [
-    BACKSTAGE_SELECTORS.loginSubmitBlock,
-    BACKSTAGE_SELECTORS.loginSubmitButton,
-    'button:has-text("Log in")',
-    'div.semi-portal button:has-text("Log in")',
   ]);
 
   await emailInput.waitFor({ state: "visible", timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
@@ -218,21 +300,56 @@ export async function performBackstageAutoLogin(page: Page, config: GathererConf
     delay: BACKSTAGE_SELECTORS.loginTypingDelayMs,
   });
 
-  await submitButton.waitFor({ state: "visible", timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
-  await dismissBackstagePopups(page);
-  await page.waitForTimeout(300);
+  await backstageClickLoginSubmit(page, passwordInput);
+}
 
-  await Promise.all([
-    page
-      .waitForURL("**/*", { waitUntil: "domcontentloaded", timeout: 15_000 })
-      .catch(() => null),
-    submitButton.click({ force: true }),
-  ]);
+// MARK: - Session Already Valid Check
+
+async function backstageTryExistingSession(page: Page, config: GathererConfig): Promise<boolean> {
+  const probeUrl = `${config.backstageBaseUrl}${BACKSTAGE_SELECTORS.managementListPath}`;
+  logInfo(`Checking existing Backstage session: ${probeUrl}`, "backstageAutoLogin");
+
+  await page.goto(probeUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: BACKSTAGE_SELECTORS.navigationTimeoutMs,
+  });
+  await waitForBackstagePageReady(page);
+  await dismissBackstagePopups(page);
+
+  if (backstagePageIsLoggedIn(page)) {
+    logInfo("Existing Backstage session still valid — skipping credential login", "backstageAutoLogin");
+    await ensureBackstageUsPlusRegion(page, config);
+    return true;
+  }
+
+  return false;
+}
+
+// MARK: - Full Auto Login
+
+export async function performBackstageAutoLogin(page: Page, config: GathererConfig): Promise<void> {
+  if (!backstageAutoLoginCredentialsConfigured(config)) {
+    throw new Error(
+      "Set BACKSTAGE_EMAIL and BACKSTAGE_PASSWORD (or TIKTOK_EMAIL / TIKTOK_PASSWORD) in .env"
+    );
+  }
+
+  if (backstageAuthFileHasCookies(config) && (await backstageTryExistingSession(page, config))) {
+    await clearBackstagePostLoginPopups(page);
+    await dismissBackstagePopups(page);
+    return;
+  }
+
+  logInfo("Starting Playwright credential login at /login/", "backstageAutoLogin");
+
+  await backstageNavigateToLoginPage(page, config);
+  await backstageEnsureLoginPageUsEnglish(page);
+  await backstageEnsureLoginFormVisible(page);
+  await backstageFillLoginCredentials(page, config);
 
   await backstageVerifyLoginSuccess(page, config);
   await clearBackstagePostLoginPopups(page);
   await dismissBackstagePopups(page);
-
   await ensureBackstageUsPlusRegion(page, config);
 
   if (!(await backstageLoginIsAuthenticated(page)) && !backstagePageIsLoggedIn(page)) {

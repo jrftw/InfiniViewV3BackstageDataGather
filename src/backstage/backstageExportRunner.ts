@@ -15,6 +15,7 @@ import { applyBackstageViewport, dismissBackstagePopups } from "./backstagePageH
 import { ensureBackstageAuthenticated } from "./backstageSession";
 import { gathererInvalidateStaleBackstageAuthIfNeeded } from "./backstageSessionRelogin";
 import { logInfo, logError } from "../logging/logger";
+import { gathererLogStep, gathererLogStepOk } from "../logging/gathererStepLogger";
 
 // MARK: - Export Result
 
@@ -41,28 +42,35 @@ export async function runBackstageExports(
   config: GathererConfig,
   timestamp: string
 ): Promise<BackstageExportResult> {
+  gathererLogStep("backstageExportRunner", "Starting Backstage browser export session", { timestamp });
   logInfo("Starting Backstage browser exports", "backstageExportRunner");
   gathererInvalidateStaleBackstageAuthIfNeeded(config);
+  gathererLogStep("backstageExportRunner", "Launching Playwright Chromium browser");
   const session = await launchBackstageBrowser(config);
 
   try {
+    gathererLogStep("backstageExportRunner", "Apply viewport and verify Backstage authentication");
     await applyBackstageViewport(session.page);
     pageSetDefaultTimeout(session.page);
 
     await ensureBackstageAuthenticated(session, config);
     await dismissBackstagePopups(session.page);
 
+    gathererLogStep("backstageExportRunner", "Export 1/2 — Manage creators (anchor/list)");
     logInfo("Export 1/2 — Manage creators (anchor/list)", "backstageExportRunner");
     const managementFile = await exportBackstageManagementReport(session.page, config, timestamp);
     validateBackstageExportFileExists(managementFile, "Management");
+    gathererLogStepOk("backstageExportRunner", "Manage creators export validated on disk", managementFile);
 
     await dismissBackstagePopups(session.page);
 
+    gathererLogStep("backstageExportRunner", "Export 2/2 — Creator Data (data/data)");
     logInfo("Export 2/2 — Creator Data (data/data)", "backstageExportRunner");
     const performanceFile = await exportBackstagePerformanceReport(session.page, config, timestamp);
     validateBackstageExportFileExists(performanceFile, "Performance");
+    gathererLogStepOk("backstageExportRunner", "Creator Data export validated on disk", performanceFile);
 
-    logInfo("Both Backstage exports completed", "backstageExportRunner", {
+    gathererLogStepOk("backstageExportRunner", "Both Backstage exports completed", undefined, {
       managementFile,
       performanceFile,
     });
@@ -74,6 +82,7 @@ export async function runBackstageExports(
     });
     throw error;
   } finally {
+    gathererLogStep("backstageExportRunner", "Closing Playwright browser");
     await closeBackstageBrowser(session);
   }
 }

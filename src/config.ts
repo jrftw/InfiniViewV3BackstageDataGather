@@ -2,7 +2,7 @@
  * Filename: config.ts
  * Purpose: Central configuration loaded from environment variables for the Backstage Gatherer.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-25
+ * Last Modified: 2026-07-07
  * Dependencies: dotenv
  * Platform Compatibility: Node.js 18+ (Windows server PC)
  */
@@ -102,6 +102,9 @@ export interface GathererConfig {
   mongodbUri: string;
   mongodbDbName: string;
   gathererMongoEnabled: boolean;
+  gathererFailureEmailEnabled: boolean;
+  gathererFailureEmailTo: string;
+  gathererFailureEmailFrom: string;
   projectRoot: string;
 }
 
@@ -242,8 +245,16 @@ export function loadGathererConfig(): GathererConfig {
     profileAcquirerTiktokHeadless:
       process.env.GATHERER_PROFILE_ACQUIRER_TIKTOK_HEADLESS !== "false",
     mongodbUri: process.env.MONGODB_URI ?? "",
-    mongodbDbName: process.env.MONGODB_DB_NAME ?? "InfiniCoreV1",
+    mongodbDbName: process.env.MONGODB_DB_NAME ?? "InfiniViewV3",
     gathererMongoEnabled: process.env.GATHERER_MONGODB_ENABLED !== "false",
+    gathererFailureEmailEnabled: process.env.GATHERER_FAILURE_EMAIL_ENABLED !== "false",
+    gathererFailureEmailTo:
+      process.env.GATHERER_FAILURE_EMAIL_TO ?? "kdoyle@infinitumimagery.com",
+    gathererFailureEmailFrom:
+      process.env.GATHERER_FAILURE_EMAIL_FROM ??
+      process.env.GOOGLE_DELEGATED_USER ??
+      process.env.GOOGLE_WORKSPACE_DELEGATED_USER ??
+      "",
     projectRoot: process.cwd(),
   };
 }

@@ -59,19 +59,17 @@ async function exportPerformanceConfirmBulkExport(page: Page): Promise<void> {
   await dismissBackstagePopups(page);
   await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
 
-  const performanceExportButton = page
-    .getByRole("button", { name: /^Export$/i })
-    .or(page.locator(BACKSTAGE_SELECTORS.performanceBulkExportButton))
-    .or(page.locator('div.liveplatform-flex-item > button.semi-button-primary:has-text("Export")'))
-    .or(page.locator('div.liveplatform-flex-item > button.semi-button-primary'))
-    .first();
-
-  await performanceExportButton.waitFor({
-    state: "visible",
-    timeout: BACKSTAGE_SELECTORS.modalWaitTimeoutMs,
-  });
-  logInfo("Performance — confirm bulk export", "exportPerformance");
-  await performanceExportButton.click({ timeout: BACKSTAGE_SELECTORS.actionTimeoutMs });
+  await backstageClickRace(
+    page,
+    [
+      BACKSTAGE_SELECTORS.performanceBulkExportButton,
+      "div.semi-modal-wrap div.liveplatform-flex-item > button.semi-button-primary:has-text(\"Export\")",
+      'div.liveplatform-flex-item > button.semi-button-primary:has-text("Export")',
+      "div.liveplatform-flex-item > button.semi-button-primary",
+      'div.liveplatform-flex-item button:has-text("Export")',
+    ],
+    "Performance — Export (bulk confirm)"
+  );
 }
 
 function exportPerformanceValidateDownloadedFile(targetPath: string): void {

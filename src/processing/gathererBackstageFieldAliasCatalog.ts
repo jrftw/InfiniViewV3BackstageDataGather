@@ -302,6 +302,129 @@ export function gathererBackstageFieldMissingCriticalCreatorDataFields(
   return criticalFields.filter((fieldName) => !columnMap[fieldName]);
 }
 
+// MARK: - Unified Creator Data Export (L30D-labeled period metrics)
+
+/** TikTok hybrid Creator Data export — wide management-style sheet with L30D-labeled period columns. */
+export interface GathererBackstageUnifiedCreatorDataL30dPeriodFallbackField {
+  systemFieldName: string;
+  parseTargetRowKey: string;
+  sourceNormalizedHeaders: string[];
+}
+
+export const GATHERER_BACKSTAGE_UNIFIED_CREATOR_DATA_L30D_PERIOD_FALLBACK_FIELDS: GathererBackstageUnifiedCreatorDataL30dPeriodFallbackField[] =
+  [
+    {
+      systemFieldName: "total_diamonds",
+      parseTargetRowKey: "total_diamonds",
+      sourceNormalizedHeaders: ["diamonds_in_l30d", "diamondsinl30d"],
+    },
+    {
+      systemFieldName: "live_duration_total_hours",
+      parseTargetRowKey: "live_duration",
+      sourceNormalizedHeaders: ["live_duration_in_l30d", "livedurationinl30d"],
+    },
+    {
+      systemFieldName: "valid_live_days_total",
+      parseTargetRowKey: "valid_go_live_days",
+      sourceNormalizedHeaders: ["valid_go_live_days_in_l30d", "validgolivedaysinl30d"],
+    },
+  ];
+
+function gathererBackstageFieldIsCreatorDataL30dPeriodFallbackEnabled(): boolean {
+  return process.env.GATHERER_CREATOR_DATA_L30D_PERIOD_FALLBACK !== "false";
+}
+
+function gathererBackstageFieldFindUnifiedCreatorDataSourceHeader(
+  normalizedHeaders: string[],
+  sourceNormalizedHeaders: string[]
+): string | null {
+  for (const sourceHeader of sourceNormalizedHeaders) {
+    if (normalizedHeaders.includes(sourceHeader)) {
+      return sourceHeader;
+    }
+  }
+  return null;
+}
+
+export function gathererBackstageFieldIsUnifiedCreatorDataHybridExport(
+  normalizedHeaders: string[],
+  columnMap: GathererBackstageFieldColumnMap
+): boolean {
+  if (gathererBackstageFieldMissingCriticalCreatorDataFields(columnMap).length === 0) {
+    return false;
+  }
+
+  const hasAllL30dPeriodSources =
+    GATHERER_BACKSTAGE_UNIFIED_CREATOR_DATA_L30D_PERIOD_FALLBACK_FIELDS.every((field) =>
+      gathererBackstageFieldFindUnifiedCreatorDataSourceHeader(
+        normalizedHeaders,
+        field.sourceNormalizedHeaders
+      )
+    );
+
+  if (!hasAllL30dPeriodSources) {
+    return false;
+  }
+
+  const hasHybridProfileMarkers =
+    normalizedHeaders.includes("creators_username") ||
+    normalizedHeaders.includes("creator_network_manager") ||
+    normalizedHeaders.includes("group") ||
+    normalizedHeaders.some((header) => header.includes("management_relationship"));
+
+  return hasHybridProfileMarkers;
+}
+
+export function gathererBackstageFieldApplyUnifiedCreatorDataL30dPeriodFallbackRemap(
+  rows: Record<string, unknown>[],
+  normalizedHeaders: string[],
+  columnMap: GathererBackstageFieldColumnMap
+): GathererBackstageFieldColumnMap {
+  if (!gathererBackstageFieldIsCreatorDataL30dPeriodFallbackEnabled()) {
+    return columnMap;
+  }
+
+  if (!gathererBackstageFieldIsUnifiedCreatorDataHybridExport(normalizedHeaders, columnMap)) {
+    return columnMap;
+  }
+
+  const updatedColumnMap: GathererBackstageFieldColumnMap = { ...columnMap };
+
+  for (const fallbackField of GATHERER_BACKSTAGE_UNIFIED_CREATOR_DATA_L30D_PERIOD_FALLBACK_FIELDS) {
+    const sourceHeader = gathererBackstageFieldFindUnifiedCreatorDataSourceHeader(
+      normalizedHeaders,
+      fallbackField.sourceNormalizedHeaders
+    );
+    if (!sourceHeader) {
+      continue;
+    }
+
+    updatedColumnMap[fallbackField.systemFieldName] = sourceHeader;
+
+    for (const row of rows) {
+      const sourceValue = row[sourceHeader];
+      if (sourceValue === null || sourceValue === undefined || String(sourceValue).trim() === "") {
+        continue;
+      }
+
+      const targetKey = fallbackField.parseTargetRowKey;
+      const existingValue = row[targetKey];
+      if (
+        existingValue !== null &&
+        existingValue !== undefined &&
+        String(existingValue).trim() !== "" &&
+        String(existingValue).trim() !== "-"
+      ) {
+        continue;
+      }
+
+      row[targetKey] = sourceValue;
+    }
+  }
+
+  return updatedColumnMap;
+}
+
 // Suggestions For Features and Additions Later:
 // - Share this catalog with Unified App backend parser for parity tests
 // - Version alias catalog when Backstage export schema changes

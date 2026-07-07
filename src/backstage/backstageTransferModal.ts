@@ -156,6 +156,63 @@ export async function backstageTransferConfirmIfOpen(page: Page, label: string):
   return false;
 }
 
+// MARK: - Unselect All Reset (performance Creator Data only)
+
+async function backstageTransferClickUnselectAllTwice(page: Page, label: string): Promise<void> {
+  const unselectButtons = page.locator(
+    'section.semi-transfer-left button:has-text("Unselect all"), ' +
+      'section.semi-transfer-right button:has-text("Unselect all"), ' +
+      'button:has-text("Unselect all")'
+  );
+  const count = await unselectButtons.count();
+
+  for (let pass = 0; pass < 2; pass++) {
+    let clicked = false;
+    for (let i = 0; i < count; i++) {
+      const btn = unselectButtons.nth(i);
+      if (!(await btn.isVisible().catch(() => false))) {
+        continue;
+      }
+      const disabled = await btn.isDisabled().catch(() => false);
+      if (disabled) {
+        continue;
+      }
+      logInfo(`${label} — Unselect all (${pass + 1}/2)`, "backstageTransferModal");
+      await btn.click();
+      clicked = true;
+      await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
+    }
+    if (!clicked) {
+      logDebug(`${label} — Unselect all (${pass + 1}/2) not available`, "backstageTransferModal");
+    }
+  }
+}
+
+// MARK: - Performance Creator Data Column Reset
+
+export async function backstageEnsurePerformanceCreatorDataColumnsSelected(
+  page: Page,
+  label: string
+): Promise<void> {
+  const resetEnabled = process.env.GATHERER_PERFORMANCE_COLUMN_RESET !== "false";
+  const modalOpen =
+    (await backstageTryWaitForTransferCustomizeModal(page)) ||
+    (await backstageOpenCustomizeModalIfNeeded(page, label));
+
+  if (!modalOpen) {
+    logInfo(`${label} — no column customize modal; continuing to export`, "backstageTransferModal");
+    return;
+  }
+
+  if (resetEnabled) {
+    await backstageTransferClickUnselectAllTwice(page, label);
+  }
+
+  await backstageTransferClickSelectAllColumns(page, label);
+  await backstageTransferConfirmIfOpen(page, label);
+  logInfo(`${label} — performance column customize step done`, "backstageTransferModal");
+}
+
 // MARK: - Smart Column Ensure (Select all if needed — skip Unselect all)
 
 export async function backstageEnsureAllExportColumnsSelected(

@@ -11,7 +11,9 @@ import { logDebug, logInfo, logWarn } from "../logging/logger";
 import { ParsedBackstageRow } from "./parseWorkbook";
 import {
   GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES,
+  gathererBackstageFieldApplyUnifiedCreatorDataL30dPeriodFallbackRemap,
   gathererBackstageFieldDetectColumnMap,
+  gathererBackstageFieldIsUnifiedCreatorDataHybridExport,
   gathererBackstageFieldMissingCriticalCreatorDataFields,
   gathererBackstageFieldRemapRowToParseTargets,
   GathererBackstageFieldColumnMap,
@@ -53,10 +55,32 @@ export function parseWorkbookPerformanceColumnsRemapRows(
   normalizedHeaders: string[],
   rawHeaders: string[]
 ): ParseWorkbookPerformanceColumnMap {
-  const systemColumnMap = gathererBackstageFieldDetectColumnMap(
+  let systemColumnMap = gathererBackstageFieldDetectColumnMap(
     normalizedHeaders,
     GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES
   );
+
+  for (const row of rows) {
+    gathererBackstageFieldRemapRowToParseTargets(
+      row,
+      systemColumnMap,
+      GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES
+    );
+  }
+
+  if (gathererBackstageFieldIsUnifiedCreatorDataHybridExport(normalizedHeaders, systemColumnMap)) {
+    systemColumnMap = gathererBackstageFieldApplyUnifiedCreatorDataL30dPeriodFallbackRemap(
+      rows,
+      normalizedHeaders,
+      systemColumnMap
+    );
+    logWarn(
+      "Unified Creator Data export profile detected — mapped L30D-labeled columns to calendar-month totals (URL date range). True L30D still comes from Manage creators export.",
+      PARSE_WORKBOOK_PERFORMANCE_COLUMNS_SOURCE,
+      { rawHeaders }
+    );
+  }
+
   const legacyColumnMap = parseWorkbookPerformanceColumnsToLegacyMap(systemColumnMap);
 
   logInfo(
@@ -70,14 +94,6 @@ export function parseWorkbookPerformanceColumnsRemapRows(
       "Creator Data export missing Total Diamonds column — add alias in gathererBackstageFieldAliasCatalog.ts or verify Backstage Customize data columns",
       PARSE_WORKBOOK_PERFORMANCE_COLUMNS_SOURCE,
       { rawHeaders }
-    );
-  }
-
-  for (const row of rows) {
-    gathererBackstageFieldRemapRowToParseTargets(
-      row,
-      systemColumnMap,
-      GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES
     );
   }
 

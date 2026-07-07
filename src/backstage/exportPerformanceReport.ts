@@ -18,7 +18,7 @@ import {
 } from "./backstagePageHelpers";
 import { gathererUnixPerformanceRange } from "../utils/dates";
 import {
-  backstageEnsureAllExportColumnsSelected,
+  backstageEnsurePerformanceCreatorDataColumnsSelected,
   backstageClickSelectAllCreatorsIfNeeded,
 } from "./backstageTransferModal";
 import { downloadBackstageExportFromNotifications } from "./backstageNotificationDownload";
@@ -72,7 +72,7 @@ export async function exportBackstagePerformanceReport(
       );
       await page.waitForTimeout(BACKSTAGE_SELECTORS.modalSettleMs);
 
-      await backstageEnsureAllExportColumnsSelected(page, "Performance");
+      await backstageEnsurePerformanceCreatorDataColumnsSelected(page, "Performance");
 
       await backstageClickRace(
         page,

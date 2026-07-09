@@ -133,51 +133,63 @@ export async function gathererMongoSnapshotRetentionDeduplicateByDay(
 
   const backfilledCount = await gathererMongoSnapshotRetentionBackfillDateKeys(db, config.timezone);
 
-  const duplicateGroups = await collection
-    .aggregate<{
-      _id: { backstage_creator_id: string; snapshot_date_key: string };
-      keeperId: ObjectId;
-      deleteIds: ObjectId[];
-      duplicateCount: number;
-    }>([
+  const duplicateGroupCursor = collection.aggregate<{
+    _id: { backstage_creator_id: string; snapshot_date_key: string };
+    docs: Array<{ id: ObjectId; w: string | null; i: string | null }>;
+    duplicateCount: number;
+  }>(
+    [
       {
         $match: {
           backstage_creator_id: { $exists: true, $ne: "" },
           snapshot_date_key: { $exists: true, $ne: "" },
         },
       },
-      { $sort: { gatherer_mongo_snapshot_written_at: -1, imported_at: -1 } },
       {
         $group: {
           _id: {
             backstage_creator_id: "$backstage_creator_id",
             snapshot_date_key: "$snapshot_date_key",
           },
-          docs: { $push: { id: "$_id" } },
+          docs: {
+            $push: {
+              id: "$_id",
+              w: "$gatherer_mongo_snapshot_written_at",
+              i: "$imported_at",
+            },
+          },
           duplicateCount: { $sum: 1 },
         },
       },
       { $match: { duplicateCount: { $gt: 1 } } },
-      {
-        $project: {
-          keeperId: { $arrayElemAt: ["$docs.id", 0] },
-          deleteIds: {
-            $slice: ["$docs.id", 1, { $subtract: ["$duplicateCount", 1] }],
-          },
-          duplicateCount: 1,
-        },
-      },
-    ])
-    .toArray();
-
-  if (duplicateGroups.length === 0) {
-    logDebug("No duplicate performance snapshots found for daily retention", GATHERER_MONGO_SNAPSHOT_RETENTION_SOURCE);
-    return { backfilledCount, deletedCount: 0 };
-  }
+    ],
+    { allowDiskUse: true }
+  );
 
   const deleteIds: ObjectId[] = [];
-  for (const group of duplicateGroups) {
-    deleteIds.push(...group.deleteIds);
+  let duplicateGroups = 0;
+
+  for await (const group of duplicateGroupCursor) {
+    duplicateGroups += 1;
+    const sortedDocs = [...group.docs].sort((left, right) => {
+      const leftWritten = Date.parse(String(left.w ?? "")) || 0;
+      const rightWritten = Date.parse(String(right.w ?? "")) || 0;
+      if (rightWritten !== leftWritten) {
+        return rightWritten - leftWritten;
+      }
+      const leftImported = Date.parse(String(left.i ?? "")) || 0;
+      const rightImported = Date.parse(String(right.i ?? "")) || 0;
+      return rightImported - leftImported;
+    });
+
+    for (const doc of sortedDocs.slice(1)) {
+      deleteIds.push(doc.id);
+    }
+  }
+
+  if (duplicateGroups === 0) {
+    logDebug("No duplicate performance snapshots found for daily retention", GATHERER_MONGO_SNAPSHOT_RETENTION_SOURCE);
+    return { backfilledCount, deletedCount: 0 };
   }
 
   let deletedCount = 0;
@@ -192,11 +204,11 @@ export async function gathererMongoSnapshotRetentionDeduplicateByDay(
   }
 
   logInfo(
-    `Removed ${deletedCount} duplicate performance snapshots (${duplicateGroups.length} creator-day groups)`,
+    `Removed ${deletedCount} duplicate performance snapshots (${duplicateGroups} creator-day groups)`,
     GATHERER_MONGO_SNAPSHOT_RETENTION_SOURCE,
     {
       backfilledCount,
-      duplicateGroups: duplicateGroups.length,
+      duplicateGroups,
     }
   );
 

@@ -102,6 +102,8 @@ export interface GathererConfig {
   mongodbUri: string;
   mongodbDbName: string;
   gathererMongoEnabled: boolean;
+  /** When true (default), keep one performance snapshot per creator per calendar day. */
+  gathererMongoSnapshotOnePerDay: boolean;
   gathererFailureEmailEnabled: boolean;
   gathererFailureEmailTo: string;
   gathererFailureEmailFrom: string;
@@ -247,6 +249,7 @@ export function loadGathererConfig(): GathererConfig {
     mongodbUri: process.env.MONGODB_URI ?? "",
     mongodbDbName: process.env.MONGODB_DB_NAME ?? "InfiniViewV3",
     gathererMongoEnabled: process.env.GATHERER_MONGODB_ENABLED !== "false",
+    gathererMongoSnapshotOnePerDay: process.env.GATHERER_MONGO_SNAPSHOT_ONE_PER_DAY !== "false",
     gathererFailureEmailEnabled: process.env.GATHERER_FAILURE_EMAIL_ENABLED !== "false",
     gathererFailureEmailTo:
       process.env.GATHERER_FAILURE_EMAIL_TO ?? "kdoyle@infinitumimagery.com",

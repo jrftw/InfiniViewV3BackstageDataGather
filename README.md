@@ -193,7 +193,7 @@ Google Sheets is a **staging/review layer**, not the production database. When `
 | Collection | Purpose |
 |---|---|
 | `creators` | Current merged creator row (upserted by `backstage_creator_id`) |
-| `creator_performance_snapshots` | Append-only performance history per import run |
+| `creator_performance_snapshots` | One performance snapshot per creator per calendar day (newest run wins) |
 | `gatherer_import_runs` | Run metadata (counts, success, timestamps) |
 
 InfiniView V3 should read from MongoDB (via your API), not from Google Sheets, for public-facing data.

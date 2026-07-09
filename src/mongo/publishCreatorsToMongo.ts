@@ -1,8 +1,8 @@
 /**
  * Filename: publishCreatorsToMongo.ts
- * Purpose: Upsert creators, append performance snapshots, and record import runs in MongoDB.
+ * Purpose: Upsert creators, upsert one daily performance snapshot per creator, and record import runs in MongoDB.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-27
+ * Last Modified: 2026-07-09
  * Dependencies: mongodb, config, logger, gathererMongoClient, gathererMongoIndexBootstrap, gathererCreatorMongoMapper
  * Platform Compatibility: Node.js 18+
  */
@@ -11,7 +11,8 @@ import { AnyBulkWriteOperation } from "mongodb";
 import { GathererConfig } from "../config";
 import { CombinedCreatorRecord } from "../processing/mergeBackstageReports";
 import { ImportSummaryData } from "../logging/importSummary";
-import { logDebug, logError, logInfo } from "../logging/logger";
+import { logError, logInfo } from "../logging/logger";
+import { gathererFormatDateKeyInTimezone } from "../utils/dates";
 import {
   GATHERER_MONGO_COLLECTION_CREATORS,
   GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS,
@@ -95,7 +96,7 @@ async function gathererMongoPublishUpsertCreators(
   return upsertedCount;
 }
 
-async function gathererMongoPublishInsertPerformanceSnapshots(
+async function gathererMongoPublishUpsertPerformanceSnapshots(
   snapshotDocuments: GathererMongoPerformanceSnapshotDocument[]
 ): Promise<number> {
   const db = gathererGetMongoDb();
@@ -103,35 +104,27 @@ async function gathererMongoPublishInsertPerformanceSnapshots(
     GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS
   );
 
-  let insertedCount = 0;
+  let upsertedCount = 0;
 
   for (const chunk of gathererMongoPublishChunkArray(snapshotDocuments, GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE)) {
-    try {
-      const result = await collection.insertMany(chunk, { ordered: false });
-      insertedCount += result.insertedCount;
-    } catch (error) {
-      const bulkError = error as { code?: number; writeErrors?: Array<{ code?: number }> };
-      const duplicateOnly =
-        bulkError.code === 11000 ||
-        (bulkError.writeErrors?.length &&
-          bulkError.writeErrors.every((writeError) => writeError.code === 11000));
+    const operations: AnyBulkWriteOperation<GathererMongoPerformanceSnapshotDocument>[] = chunk.map(
+      (document) => ({
+        updateOne: {
+          filter: {
+            backstage_creator_id: document.backstage_creator_id,
+            snapshot_date_key: document.snapshot_date_key,
+          },
+          update: { $set: document },
+          upsert: true,
+        },
+      })
+    );
 
-      if (duplicateOnly) {
-        const attempted = chunk.length - (bulkError.writeErrors?.length ?? 0);
-        insertedCount += Math.max(0, attempted);
-        logDebug(
-          "Skipped duplicate performance snapshots for this import run",
-          GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE,
-          { chunkSize: chunk.length }
-        );
-        continue;
-      }
-
-      throw error;
-    }
+    const result = await collection.bulkWrite(operations, { ordered: false });
+    upsertedCount += result.upsertedCount + result.modifiedCount + result.matchedCount;
   }
 
-  return insertedCount;
+  return upsertedCount;
 }
 
 async function gathererMongoPublishRecordImportRun(
@@ -161,6 +154,7 @@ export async function publishCreatorsToMongo(
   summary: ImportSummaryData
 ): Promise<GathererMongoPublishResult> {
   const mongoWrittenAt = new Date().toISOString();
+  const snapshotDateKey = gathererFormatDateKeyInTimezone(config.timezone, new Date(mongoWrittenAt));
   const emptyResult: GathererMongoPublishResult = {
     published: false,
     creatorsUpserted: 0,
@@ -184,7 +178,11 @@ export async function publishCreatorsToMongo(
     }
     creatorDocuments.push(creatorDocument);
 
-    const snapshotDocument = gathererMongoMapperCreatorToPerformanceSnapshot(creator, mongoWrittenAt);
+    const snapshotDocument = gathererMongoMapperCreatorToPerformanceSnapshot(
+      creator,
+      mongoWrittenAt,
+      snapshotDateKey
+    );
     if (snapshotDocument) {
       snapshotDocuments.push(snapshotDocument);
     }
@@ -198,15 +196,16 @@ export async function publishCreatorsToMongo(
 
   try {
     const creatorsUpserted = await gathererMongoPublishUpsertCreators(creatorDocuments);
-    const snapshotsInserted = await gathererMongoPublishInsertPerformanceSnapshots(snapshotDocuments);
+    const snapshotsInserted = await gathererMongoPublishUpsertPerformanceSnapshots(snapshotDocuments);
     await gathererMongoPublishRecordImportRun(summary, true, mongoWrittenAt);
 
     logInfo(
-      `MongoDB publish complete — ${creatorsUpserted} creators upserted, ${snapshotsInserted} snapshots inserted`,
+      `MongoDB publish complete — ${creatorsUpserted} creators upserted, ${snapshotsInserted} daily snapshots upserted`,
       GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE,
       {
         creatorsSkipped,
         database: config.mongodbDbName,
+        snapshotDateKey,
       }
     );
 
@@ -238,3 +237,4 @@ export async function publishCreatorsToMongo(
 // Suggestions For Features and Additions Later:
 // - Transaction wrapper for creators + snapshots + import_run atomic commit
 // - Mark creators missing from latest run with stale flag instead of deleting
+// - Optional TTL purge for snapshots older than N months

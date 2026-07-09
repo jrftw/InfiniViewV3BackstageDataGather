@@ -12,7 +12,7 @@
 /** Current merged creator row — one document per backstage_creator_id (upserted each run). */
 export const GATHERER_MONGO_COLLECTION_CREATORS = "creators";
 
-/** Append-only performance history per gatherer import run. */
+/** One performance snapshot per creator per calendar day (newest run wins). */
 export const GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS =
   "creator_performance_snapshots";
 

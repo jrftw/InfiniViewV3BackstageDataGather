@@ -2,7 +2,7 @@
  * Filename: gathererCreatorMongoMapper.ts
  * Purpose: Map CombinedCreatorRecord rows to MongoDB creator and snapshot documents.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-27
+ * Last Modified: 2026-07-09
  * Dependencies: mergeBackstageReports, importSummary
  * Platform Compatibility: Node.js 18+
  */
@@ -21,6 +21,8 @@ export interface GathererMongoCreatorDocument {
 
 export interface GathererMongoPerformanceSnapshotDocument {
   backstage_creator_id: string;
+  /** Calendar day (YYYY-MM-DD) in gatherer timezone — one snapshot per creator per day. */
+  snapshot_date_key: string;
   import_run_id: string;
   imported_at: string;
   row_checksum: string | null;
@@ -185,15 +187,22 @@ export function gathererMongoMapperCreatorToDocument(
 
 export function gathererMongoMapperCreatorToPerformanceSnapshot(
   creator: CombinedCreatorRecord,
-  mongoWrittenAt: string
+  mongoWrittenAt: string,
+  snapshotDateKey: string
 ): GathererMongoPerformanceSnapshotDocument | null {
   const backstageCreatorId = String(creator.backstage_creator_id ?? "").trim();
   if (!backstageCreatorId) {
     return null;
   }
 
+  const normalizedSnapshotDateKey = String(snapshotDateKey ?? "").trim();
+  if (!normalizedSnapshotDateKey) {
+    return null;
+  }
+
   const snapshot: GathererMongoPerformanceSnapshotDocument = {
     backstage_creator_id: backstageCreatorId,
+    snapshot_date_key: normalizedSnapshotDateKey,
     import_run_id: creator.import_run_id,
     imported_at: creator.imported_at,
     row_checksum: creator.row_checksum ?? null,

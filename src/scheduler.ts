@@ -21,6 +21,7 @@ import {
 } from "./scheduler/gathererSchedulePlanner";
 import { gathererFormatBusinessDateKey } from "./utils/dates";
 import { gathererReadJsonFile } from "./utils/files";
+import { runSnapshotHistoryImportJob } from "./jobs/runSnapshotHistoryImportJob";
 
 const GATHERER_STARTUP_CATCHUP_DELAY_MS = 3 * 60 * 1000;
 const GATHERER_LAST_SUMMARY_RELATIVE_PATH = "data/logs/last-run-summary.json";
@@ -143,8 +144,45 @@ function gathererScheduleMidnightReschedule(config: GathererConfig): void {
   gathererMidnightRescheduleTimer = setTimeout(() => {
     logInfo("Midnight reached — generating a new daily gatherer schedule", "scheduler");
     gathererScheduleRunsForToday(config);
+    gathererScheduleSnapshotHistoryImport(config);
     gathererScheduleMidnightReschedule(config);
   }, delayMs);
+}
+
+// MARK: - Snapshot History Import (12:30 AM ET default)
+
+async function gathererTriggerSnapshotHistoryImport(config: GathererConfig): Promise<void> {
+  if (!config.gathererSnapshotHistoryImportEnabled) {
+    logInfo("Snapshot history import disabled (GATHERER_SNAPSHOT_HISTORY_IMPORT_ENABLED=false)", "scheduler");
+    return;
+  }
+
+  logInfo("Scheduled snapshot history import triggered", "scheduler");
+  const exitCode = await runSnapshotHistoryImportJob(["--scheduled"]);
+  if (exitCode !== 0) {
+    logError("Scheduled snapshot history import failed", "scheduler");
+  }
+}
+
+function gathererScheduleSnapshotHistoryImport(config: GathererConfig): void {
+  if (!config.gathererSnapshotHistoryImportEnabled) {
+    return;
+  }
+
+  const cronExpression = gathererTimeToCron(config.gathererSnapshotHistoryImportTime);
+  const task = cron.schedule(
+    cronExpression,
+    () => {
+      void gathererTriggerSnapshotHistoryImport(config);
+    },
+    { timezone: config.timezone }
+  );
+
+  gathererScheduledCronTasks.push(task);
+  logInfo(
+    `Scheduled snapshot history import at ${config.gathererSnapshotHistoryImportTime} (${config.timezone})`,
+    "scheduler"
+  );
 }
 
 // MARK: - Startup Catch-Up
@@ -227,6 +265,7 @@ export function scheduleGathererStartupCatchUp(config: GathererConfig): void {
 
 export function startGathererScheduler(config: GathererConfig): void {
   gathererScheduleRunsForToday(config);
+  gathererScheduleSnapshotHistoryImport(config);
   gathererScheduleMidnightReschedule(config);
   scheduleGathererStartupCatchUp(config);
 }

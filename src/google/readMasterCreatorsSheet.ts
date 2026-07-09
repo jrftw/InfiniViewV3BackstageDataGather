@@ -370,6 +370,13 @@ export async function readMasterCreatorsSheetRawRows(
   };
 }
 
+/** Parse Combined Creators tab values (header row + data rows) into creator records. */
+export function readMasterCreatorsSheetParseCombinedCreatorsValues(
+  rows: string[][]
+): CombinedCreatorRecord[] {
+  return readMasterCreatorsSheetParseRows(rows);
+}
+
 export async function readMasterCreatorsSheet(
   config: GathererConfig
 ): Promise<CombinedCreatorRecord[]> {

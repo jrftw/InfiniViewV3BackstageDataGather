@@ -2,7 +2,7 @@
  * Filename: config.ts
  * Purpose: Central configuration loaded from environment variables for the Backstage Gatherer.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-07
+ * Last Modified: 2026-07-09
  * Dependencies: dotenv
  * Platform Compatibility: Node.js 18+ (Windows server PC)
  */
@@ -104,9 +104,20 @@ export interface GathererConfig {
   gathererMongoEnabled: boolean;
   /** When true (default), keep one performance snapshot per creator per calendar day. */
   gathererMongoSnapshotOnePerDay: boolean;
+  /** When true, nightly job imports Drive daily archives into creator_daily_snapshots. */
+  gathererSnapshotHistoryImportEnabled: boolean;
+  /** Cron time (HH:MM, America/New_York) for snapshot history import — default 00:30. */
+  gathererSnapshotHistoryImportTime: string;
+  /** Combined Creators tab name in daily Drive archive spreadsheets. */
+  gathererSnapshotHistoryCombinedTab: string;
   gathererFailureEmailEnabled: boolean;
   gathererFailureEmailTo: string;
   gathererFailureEmailFrom: string;
+  /** When true, optional InfinitumServerAgent post-publish hooks are attempted. */
+  infinitumAgentEnabled: boolean;
+  infinitumAgentBaseUrl: string;
+  infinitumAgentApiToken: string;
+  infinitumAgentTimeoutMs: number;
   projectRoot: string;
 }
 
@@ -151,6 +162,12 @@ function gathererParseCommaList(rawValue: string): string[] {
 
 export function gathererIsMongoConfigured(config: Pick<GathererConfig, "mongodbUri" | "gathererMongoEnabled">): boolean {
   return config.gathererMongoEnabled && config.mongodbUri.trim().length > 0;
+}
+
+export function gathererIsInfinitumAgentEnabled(
+  config: Pick<GathererConfig, "infinitumAgentEnabled" | "infinitumAgentBaseUrl">
+): boolean {
+  return config.infinitumAgentEnabled && config.infinitumAgentBaseUrl.trim().length > 0;
 }
 
 // MARK: - Configuration Loader
@@ -250,6 +267,12 @@ export function loadGathererConfig(): GathererConfig {
     mongodbDbName: process.env.MONGODB_DB_NAME ?? "InfiniViewV3",
     gathererMongoEnabled: process.env.GATHERER_MONGODB_ENABLED !== "false",
     gathererMongoSnapshotOnePerDay: process.env.GATHERER_MONGO_SNAPSHOT_ONE_PER_DAY !== "false",
+    gathererSnapshotHistoryImportEnabled:
+      process.env.GATHERER_SNAPSHOT_HISTORY_IMPORT_ENABLED !== "false",
+    gathererSnapshotHistoryImportTime:
+      process.env.GATHERER_SNAPSHOT_HISTORY_IMPORT_TIME ?? "00:30",
+    gathererSnapshotHistoryCombinedTab:
+      process.env.GATHERER_SNAPSHOT_HISTORY_COMBINED_TAB ?? "Combined Creators",
     gathererFailureEmailEnabled: process.env.GATHERER_FAILURE_EMAIL_ENABLED !== "false",
     gathererFailureEmailTo:
       process.env.GATHERER_FAILURE_EMAIL_TO ?? "kdoyle@infinitumimagery.com",
@@ -258,6 +281,11 @@ export function loadGathererConfig(): GathererConfig {
       process.env.GOOGLE_DELEGATED_USER ??
       process.env.GOOGLE_WORKSPACE_DELEGATED_USER ??
       "",
+    infinitumAgentEnabled:
+      (process.env.INFINITUM_AGENT_ENABLED ?? "false").toLowerCase() === "true",
+    infinitumAgentBaseUrl: process.env.INFINITUM_AGENT_BASE_URL?.trim() ?? "",
+    infinitumAgentApiToken: process.env.INFINITUM_AGENT_API_TOKEN?.trim() ?? "",
+    infinitumAgentTimeoutMs: Number(process.env.INFINITUM_AGENT_TIMEOUT_MS ?? 5000),
     projectRoot: process.cwd(),
   };
 }

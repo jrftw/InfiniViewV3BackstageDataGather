@@ -12,8 +12,11 @@ import { GathererConfig } from "../config";
 import {
   GATHERER_MONGO_ALL_COLLECTIONS,
   GATHERER_MONGO_COLLECTION_CREATORS,
+  GATHERER_MONGO_COLLECTION_CREATOR_DAILY_SNAPSHOTS,
+  GATHERER_MONGO_COLLECTION_CREATOR_MONTHLY_GOALS,
   GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS,
   GATHERER_MONGO_COLLECTION_IMPORT_RUNS,
+  GATHERER_MONGO_COLLECTION_SNAPSHOT_IMPORT_RUNS,
 } from "./gathererMongoCollections";
 import { gathererConnectMongo } from "./gathererMongoClient";
 import { gathererMongoSnapshotRetentionDeduplicateByDay } from "./gathererMongoSnapshotRetention";
@@ -119,6 +122,33 @@ async function gathererEnsureMongoIndexes(db: Db, config: GathererConfig): Promi
     { key: { run_id: 1 }, unique: true, name: "gatherer_import_runs_run_id_unique" },
     { key: { started_at: -1 }, name: "gatherer_import_runs_started_at" },
     { key: { success: 1, finished_at: -1 }, name: "gatherer_import_runs_success_finished_at" },
+  ]);
+
+  await db.collection(GATHERER_MONGO_COLLECTION_CREATOR_DAILY_SNAPSHOTS).createIndexes([
+    {
+      key: { creatorId: 1, snapshotDate: 1 },
+      unique: true,
+      name: "creator_daily_snapshots_creator_date_unique",
+    },
+    { key: { snapshotDate: -1 }, name: "creator_daily_snapshots_snapshot_date" },
+    { key: { snapshotMonth: 1, creatorId: 1 }, name: "creator_daily_snapshots_month_creator" },
+    { key: { tiktokUsername: 1, snapshotDate: 1 }, name: "creator_daily_snapshots_username_date" },
+    { key: { importRunId: 1 }, name: "creator_daily_snapshots_import_run_id" },
+  ]);
+
+  await db.collection(GATHERER_MONGO_COLLECTION_CREATOR_MONTHLY_GOALS).createIndexes([
+    {
+      key: { creatorId: 1, month: 1 },
+      unique: true,
+      name: "creator_monthly_goals_creator_month_unique",
+    },
+    { key: { month: 1 }, name: "creator_monthly_goals_month" },
+  ]);
+
+  await db.collection(GATHERER_MONGO_COLLECTION_SNAPSHOT_IMPORT_RUNS).createIndexes([
+    { key: { importRunId: 1 }, unique: true, name: "creator_snapshot_import_runs_id_unique" },
+    { key: { startedAt: -1 }, name: "creator_snapshot_import_runs_started_at" },
+    { key: { success: 1, finishedAt: -1 }, name: "creator_snapshot_import_runs_success_finished" },
   ]);
 
   logDebug("Gatherer MongoDB indexes ensured", GATHERER_MONGO_INDEX_BOOTSTRAP_SOURCE);

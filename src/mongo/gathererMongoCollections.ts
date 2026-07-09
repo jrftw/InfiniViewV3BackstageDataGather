@@ -19,10 +19,22 @@ export const GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS =
 /** Gatherer run metadata (success, counts, timestamps). */
 export const GATHERER_MONGO_COLLECTION_IMPORT_RUNS = "gatherer_import_runs";
 
+/** Daily contribution snapshots — one row per creator per calendar day (Priority 1 history engine). */
+export const GATHERER_MONGO_COLLECTION_CREATOR_DAILY_SNAPSHOTS = "creator_daily_snapshots";
+
+/** Monthly D.I.P. goal targets per creator (source of truth for goal math). */
+export const GATHERER_MONGO_COLLECTION_CREATOR_MONTHLY_GOALS = "creator_monthly_goals";
+
+/** Audit log for Drive history snapshot import runs. */
+export const GATHERER_MONGO_COLLECTION_SNAPSHOT_IMPORT_RUNS = "creator_snapshot_import_runs";
+
 export const GATHERER_MONGO_ALL_COLLECTIONS = [
   GATHERER_MONGO_COLLECTION_CREATORS,
   GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS,
   GATHERER_MONGO_COLLECTION_IMPORT_RUNS,
+  GATHERER_MONGO_COLLECTION_CREATOR_DAILY_SNAPSHOTS,
+  GATHERER_MONGO_COLLECTION_CREATOR_MONTHLY_GOALS,
+  GATHERER_MONGO_COLLECTION_SNAPSHOT_IMPORT_RUNS,
 ] as const;
 
 // Suggestions For Features and Additions Later:

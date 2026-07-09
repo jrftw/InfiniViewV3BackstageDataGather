@@ -2,7 +2,7 @@
  * Filename: runGathererJob.ts
  * Purpose: Main gatherer job — export, merge, enrich, output.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-07
+ * Last Modified: 2026-07-09
  * Dependencies: All gatherer modules
  * Platform Compatibility: Node.js 18+ (Windows server PC)
  */
@@ -41,6 +41,7 @@ import {
   gathererLogWarn,
   gathererLogWorking,
 } from "../logging/friendlyLog";
+import { gathererInfinitumAgentRunPostPublishHooks } from "../services/gathererInfinitumAgentPostPublish";
 
 // MARK: - Failure Notification
 
@@ -184,6 +185,27 @@ export async function runGathererJob(
       );
     } else {
       gathererLogInfo("MongoDB", "skipped or not configured");
+    }
+
+    const agentPostPublishResult = await gathererInfinitumAgentRunPostPublishHooks({
+      config,
+      runContext,
+      runId,
+      driveUploaded: publishResult.driveUploaded,
+    });
+
+    if (agentPostPublishResult.attempted) {
+      if (agentPostPublishResult.success) {
+        gathererLogOk(
+          "InfinitumServerAgent",
+          `${agentPostPublishResult.job} completed`
+        );
+      } else {
+        gathererLogWarn(
+          "InfinitumServerAgent",
+          `${agentPostPublishResult.job} failed — ${agentPostPublishResult.error ?? "unknown error"}`
+        );
+      }
     }
 
     setGathererLastSummary(summary);

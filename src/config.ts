@@ -118,6 +118,17 @@ export interface GathererConfig {
   infinitumAgentBaseUrl: string;
   infinitumAgentApiToken: string;
   infinitumAgentTimeoutMs: number;
+  /** InfiniView unified API base URL for post-import highlight scans. */
+  infiniviewApiBaseUrl: string;
+  /** Bearer token for /internal/* routes (INFINIVIEW_INTERNAL_SERVICE_SECRET). */
+  infiniviewInternalServiceSecret: string;
+  /** When true, run highlight scan on an hourly schedule during active hours. */
+  gathererAutoHighlightsScanEnabled: boolean;
+  /** Inclusive local hour (0–23) when hourly highlight scans may run — default 8 (8 AM). */
+  gathererAutoHighlightsScanActiveHourStart: number;
+  /** Inclusive local hour (0–23) when hourly highlight scans may run — default 20 (8 PM). */
+  gathererAutoHighlightsScanActiveHourEnd: number;
+  infiniviewHighlightScanTimeoutMs: number;
   projectRoot: string;
 }
 
@@ -168,6 +179,19 @@ export function gathererIsInfinitumAgentEnabled(
   config: Pick<GathererConfig, "infinitumAgentEnabled" | "infinitumAgentBaseUrl">
 ): boolean {
   return config.infinitumAgentEnabled && config.infinitumAgentBaseUrl.trim().length > 0;
+}
+
+export function gathererIsInfiniviewHighlightScanEnabled(
+  config: Pick<
+    GathererConfig,
+    "gathererAutoHighlightsScanEnabled" | "infiniviewApiBaseUrl" | "infiniviewInternalServiceSecret"
+  >
+): boolean {
+  return (
+    config.gathererAutoHighlightsScanEnabled &&
+    config.infiniviewApiBaseUrl.trim().length > 0 &&
+    config.infiniviewInternalServiceSecret.trim().length > 0
+  );
 }
 
 // MARK: - Configuration Loader
@@ -286,6 +310,21 @@ export function loadGathererConfig(): GathererConfig {
     infinitumAgentBaseUrl: process.env.INFINITUM_AGENT_BASE_URL?.trim() ?? "",
     infinitumAgentApiToken: process.env.INFINITUM_AGENT_API_TOKEN?.trim() ?? "",
     infinitumAgentTimeoutMs: Number(process.env.INFINITUM_AGENT_TIMEOUT_MS ?? 5000),
+    infiniviewApiBaseUrl:
+      process.env.INFINIVIEW_API_BASE_URL?.trim() ??
+      "https://us-central1-infiniviewv3.cloudfunctions.net/api",
+    infiniviewInternalServiceSecret: process.env.INFINIVIEW_INTERNAL_SERVICE_SECRET?.trim() ?? "",
+    gathererAutoHighlightsScanEnabled:
+      (process.env.GATHERER_AUTO_HIGHLIGHTS_SCAN_ENABLED ?? "false").toLowerCase() === "true",
+    gathererAutoHighlightsScanActiveHourStart: Number(
+      process.env.GATHERER_AUTO_HIGHLIGHTS_SCAN_ACTIVE_HOUR_START ?? 8
+    ),
+    gathererAutoHighlightsScanActiveHourEnd: Number(
+      process.env.GATHERER_AUTO_HIGHLIGHTS_SCAN_ACTIVE_HOUR_END ?? 20
+    ),
+    infiniviewHighlightScanTimeoutMs: Number(
+      process.env.INFINIVIEW_HIGHLIGHT_SCAN_TIMEOUT_MS ?? 15000
+    ),
     projectRoot: process.cwd(),
   };
 }

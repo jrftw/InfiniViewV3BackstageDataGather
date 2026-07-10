@@ -2,16 +2,39 @@
  * Filename: runSnapshotHistoryImportJob.ts
  * Purpose: CLI entry for Priority 1 Daily Snapshot History Engine import.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-09
+ * Last Modified: 2026-07-10
  * Dependencies: config, gathererSnapshotHistoryImportService
  * Platform Compatibility: Node.js 18+
  */
 
 import { loadGathererConfig } from "../config";
 import { gathererSnapshotHistoryRunImport } from "../snapshotHistory/gathererSnapshotHistoryImportService";
+import { gathererInfiniviewCommunityHighlightScanClientRun } from "../services/gathererInfiniviewCommunityHighlightScanClient";
 import { logError, logInfo } from "../logging/logger";
 
 const GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE = "runSnapshotHistoryImportJob";
+
+// MARK: Date Helpers
+
+function gathererRunSnapshotHistoryImportJobYesterdayDateKey(timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const read = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number.parseInt(parts.find((part) => part.type === type)?.value ?? "1", 10);
+
+  const todayUtc = new Date(Date.UTC(read("year"), read("month") - 1, read("day")));
+  todayUtc.setUTCDate(todayUtc.getUTCDate() - 1);
+
+  const year = todayUtc.getUTCFullYear();
+  const month = String(todayUtc.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(todayUtc.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 // MARK: CLI Args
 
@@ -20,11 +43,13 @@ function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
   snapshotDate?: string;
   skipExistingDates: boolean;
   forceReimport: boolean;
+  importThroughDate?: string;
 } {
   let trigger: "scheduled" | "backfill" | "manual" = "manual";
   let snapshotDate: string | undefined;
   let skipExistingDates = false;
   let forceReimport = false;
+  let importThroughDate: string | undefined;
 
   for (const arg of argv) {
     if (arg === "--backfill") {
@@ -32,6 +57,8 @@ function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
       skipExistingDates = true;
     } else if (arg === "--scheduled") {
       trigger = "scheduled";
+      skipExistingDates = true;
+      forceReimport = false;
     } else if (arg === "--force-reimport") {
       forceReimport = true;
       skipExistingDates = false;
@@ -44,18 +71,10 @@ function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
 
   if (trigger === "scheduled" && !snapshotDate) {
     const config = loadGathererConfig();
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: config.timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(new Date());
-    const read = (type: Intl.DateTimeFormatPartTypes): string =>
-      parts.find((part) => part.type === type)?.value ?? "01";
-    snapshotDate = `${read("year")}-${read("month")}-${read("day")}`;
+    importThroughDate = gathererRunSnapshotHistoryImportJobYesterdayDateKey(config.timezone);
   }
 
-  return { trigger, snapshotDate, skipExistingDates, forceReimport };
+  return { trigger, snapshotDate, skipExistingDates, forceReimport, importThroughDate };
 }
 
 // MARK: Main
@@ -71,6 +90,7 @@ export async function runSnapshotHistoryImportJob(argv: string[] = process.argv.
     snapshotDate: args.snapshotDate,
     skipExistingDates: args.skipExistingDates,
     forceReimport: args.forceReimport || !args.skipExistingDates,
+    importThroughDate: args.importThroughDate,
   });
 
   logInfo("Snapshot history import job finished", GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE, {
@@ -82,6 +102,12 @@ export async function runSnapshotHistoryImportJob(argv: string[] = process.argv.
     snapshotsSkipped: result.snapshotsSkipped,
     errorCount: result.errors.length,
   });
+
+  if (result.success) {
+    void gathererInfiniviewCommunityHighlightScanClientRun(config, {
+      trigger: "snapshot-import",
+    });
+  }
 
   return result.success ? 0 : 1;
 }

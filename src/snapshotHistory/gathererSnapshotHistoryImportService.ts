@@ -46,6 +46,8 @@ export interface GathererSnapshotHistoryImportOptions {
   trigger: "scheduled" | "backfill" | "manual";
   /** Import only this date (YYYY-MM-DD). When omitted, imports all discovered archives. */
   snapshotDate?: string;
+  /** Scheduled nightly: only import archives on or before this date (typically yesterday ET). */
+  importThroughDate?: string;
   /** Re-import dates even if already present (idempotent upsert). Default true. */
   forceReimport?: boolean;
   /** Skip dates already imported unless forceReimport. Default false for backfill, true for scheduled single-day. */
@@ -364,6 +366,8 @@ export async function gathererSnapshotHistoryRunImport(
 
   if (options.snapshotDate) {
     entries = entries.filter((entry) => entry.snapshotDate === options.snapshotDate);
+  } else if (options.importThroughDate) {
+    entries = entries.filter((entry) => entry.snapshotDate <= options.importThroughDate!);
   }
 
   filesScanned = entries.length;

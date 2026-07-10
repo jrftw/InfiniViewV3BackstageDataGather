@@ -22,6 +22,8 @@ import {
 import { gathererFormatBusinessDateKey } from "./utils/dates";
 import { gathererReadJsonFile } from "./utils/files";
 import { runSnapshotHistoryImportJob } from "./jobs/runSnapshotHistoryImportJob";
+import { gathererInfiniviewCommunityHighlightScanClientRun } from "./services/gathererInfiniviewCommunityHighlightScanClient";
+import { gathererAutoHighlightsScanScheduleBuildHourlyCronExpression } from "./services/gathererAutoHighlightsScanSchedule";
 
 const GATHERER_STARTUP_CATCHUP_DELAY_MS = 3 * 60 * 1000;
 const GATHERER_LAST_SUMMARY_RELATIVE_PATH = "data/logs/last-run-summary.json";
@@ -164,6 +166,36 @@ async function gathererTriggerSnapshotHistoryImport(config: GathererConfig): Pro
   }
 }
 
+// MARK: - Auto Highlights Scan (hourly, 8 AM–8 PM ET default)
+
+async function gathererTriggerAutoHighlightsScan(config: GathererConfig): Promise<void> {
+  await gathererInfiniviewCommunityHighlightScanClientRun(config, {
+    trigger: "scheduled",
+  });
+}
+
+function gathererScheduleAutoHighlightsScan(config: GathererConfig): void {
+  if (!config.gathererAutoHighlightsScanEnabled) {
+    logInfo("Auto highlights scan disabled (GATHERER_AUTO_HIGHLIGHTS_SCAN_ENABLED=false)", "scheduler");
+    return;
+  }
+
+  const cronExpression = gathererAutoHighlightsScanScheduleBuildHourlyCronExpression(config);
+  const task = cron.schedule(
+    cronExpression,
+    () => {
+      void gathererTriggerAutoHighlightsScan(config);
+    },
+    { timezone: config.timezone }
+  );
+
+  gathererScheduledCronTasks.push(task);
+  logInfo(
+    `Scheduled community highlight scan hourly ${String(config.gathererAutoHighlightsScanActiveHourStart).padStart(2, "0")}:00–${String(config.gathererAutoHighlightsScanActiveHourEnd).padStart(2, "0")}:00 (${config.timezone})`,
+    "scheduler"
+  );
+}
+
 function gathererScheduleSnapshotHistoryImport(config: GathererConfig): void {
   if (!config.gathererSnapshotHistoryImportEnabled) {
     return;
@@ -266,6 +298,7 @@ export function scheduleGathererStartupCatchUp(config: GathererConfig): void {
 export function startGathererScheduler(config: GathererConfig): void {
   gathererScheduleRunsForToday(config);
   gathererScheduleSnapshotHistoryImport(config);
+  gathererScheduleAutoHighlightsScan(config);
   gathererScheduleMidnightReschedule(config);
   scheduleGathererStartupCatchUp(config);
 }

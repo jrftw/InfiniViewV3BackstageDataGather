@@ -213,7 +213,7 @@ export function loadGathererConfig(): GathererConfig {
     gathererActiveHoursStart: process.env.GATHERER_ACTIVE_HOURS_START ?? "07:30",
     gathererActiveHoursEnd: process.env.GATHERER_ACTIVE_HOURS_END ?? "22:30",
     gathererRunJitterMinutes: Number(process.env.GATHERER_RUN_JITTER_MINUTES ?? 18),
-    gathererMinMinutesBetweenRuns: Number(process.env.GATHERER_MIN_MINUTES_BETWEEN_RUNS ?? 55),
+    gathererMinMinutesBetweenRuns: Number(process.env.GATHERER_MIN_MINUTES_BETWEEN_RUNS ?? 50),
     gathererDailyArchiveTime: process.env.GATHERER_DAILY_ARCHIVE_TIME ?? "20:00",
     gathererKeepRawPairsPerDay: Number(process.env.GATHERER_KEEP_RAW_PAIRS_PER_DAY ?? 4),
     gathererBackstageForceReloginHours: Number(

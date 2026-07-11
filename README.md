@@ -1,30 +1,47 @@
 # InfiniView V3 Backstage Gatherer
 
-Automated TikTok LIVE Backstage data pipeline. Exports management and performance reports via Playwright, merges rows by Creator ID, publishes to Google Drive and Sheets, and dual-writes to MongoDB when configured.
+Automated TikTok LIVE Backstage export, merge, enrichment, and publish pipeline for InfiniView V3.
 
 **Owner:** Kevin Doyle Jr. / Infinitum Imagery LLC  
 **Repository:** [jrftw/InfiniViewV3BackstageDataGather](https://github.com/jrftw/InfiniViewV3BackstageDataGather)  
-**Default branch:** `main`  
-**Dashboard:** `http://localhost:3099` (when running)
+**Version:** 1.0.0 (`package.json`)  
+**Documentation audit:** 2026-07-11  
+**Audited commit:** `70496a5` on branch `main`  
+**License:** Proprietary — Infinitum Imagery LLC
 
-**Detailed run guide:** [Plan/HOW_TO_RUN.md](Plan/HOW_TO_RUN.md)
+---
+
+## Status
+
+| Area | Status |
+|------|--------|
+| TypeScript build (`npm run build`) | Verified — exit 0 on audit machine |
+| CI (`.github/workflows/ci.yml`) | Build only — no automated tests |
+| Backstage automation | Implemented — requires live Backstage session |
+| Google Drive/Sheets publish | Implemented — requires service account + sharing |
+| MongoDB dual-write | Implemented — requires `MONGODB_URI` |
+| Auto Highlights scan | Disabled by default (`GATHERER_AUTO_HIGHLIGHTS_SCAN_ENABLED=false`) |
+| Live end-to-end runs | Unable to verify without production credentials |
+
+This service is designed for a dedicated **Windows server PC** running 24/7. It is not a multi-tenant SaaS.
 
 ---
 
 ## What it does
 
 ```text
-TikTok LIVE Backstage (browser automation)
-        │  Playwright export (management + performance Excel)
+TikTok LIVE Backstage (Playwright / Chromium)
+        │  management + performance Excel exports
         ▼
-Processing pipeline (merge, normalize, enrich)
-        ├── Google Drive  (daily archives)
-        ├── Google Sheets (staging / human review / master tab)
-        ├── MongoDB InfiniViewV3  (creators, snapshots, daily history)
-        └── Profile Acquirer  (TikTok public profile enrichment)
+Processing (merge, normalize, filter, enrich)
+        ├── Local files (data/raw, data/processed)
+        ├── Google Drive (archives, profile images)
+        ├── Google Sheets (staging / master tab)
+        ├── MongoDB InfiniViewV3 (6 collections when configured)
+        └── Profile Acquirer (TikTok public profile enrichment)
 ```
 
-Google Sheets is a **staging and review layer**, not the production database. InfiniView V3 reads creator performance from **MongoDB** (via the InfiniView API), not directly from Sheets.
+Google Sheets is a **staging and review layer**. InfiniView V3 reads creator performance from **MongoDB** via the InfiniView API, not directly from Sheets.
 
 ---
 
@@ -32,13 +49,15 @@ Google Sheets is a **staging and review layer**, not the production database. In
 
 | Component | Choice |
 |-----------|--------|
-| Runtime | Node.js 18+ |
+| Runtime | Node.js 18+ (CI uses Node 20) |
+| Language | TypeScript → CommonJS (`dist/`) |
 | Browser automation | Playwright (Chromium) |
-| Server | Express (dashboard + manual trigger API) |
+| HTTP server | Express on port **3099** (default) |
 | Scheduling | node-cron |
 | Storage output | Google Drive API, Google Sheets API |
-| Database | MongoDB Atlas (`InfiniViewV3`) when `MONGODB_URI` is set |
+| Database | MongoDB Atlas `InfiniViewV3` when `MONGODB_URI` set |
 | Excel parsing | xlsx |
+| Logging | pino + pino-pretty |
 
 ---
 
@@ -47,100 +66,30 @@ Google Sheets is a **staging and review layer**, not the production database. In
 | PC | Role |
 |----|------|
 | **Dev PC** | Edit code, push to GitHub |
-| **Server PC** | Runs 24/7, auto-pulls updates from GitHub |
+| **Server PC** | Runs 24/7, auto-pulls updates |
 
 ```text
-Dev PC  →  git push  →  GitHub  →  auto-update  →  Server PC
+Dev PC  →  git push  →  GitHub  →  auto-update (15 min)  →  Server PC
 ```
 
-The server PC checks GitHub every 15 minutes (built into the app + optional Windows scheduled task). When you push changes, the server pulls, rebuilds, and restarts if `start-server.bat` is running.
+When `start-server.bat` is running, the server pulls, runs `npm ci`, `npm run build`, and restarts after updates. Trigger an immediate check from the dashboard: **Check for Updates**.
 
 ---
 
-## Server PC — first-time setup
-
-### Prerequisites
-
-- [Node.js 18+](https://nodejs.org)
-- [Git](https://git-scm.com)
-- Google Cloud service account (Drive + Sheets access)
-- Backstage login (one-time, saved locally)
-
-### 1. Clone
+## Quick start (server PC)
 
 ```bat
 git clone https://github.com/jrftw/InfiniViewV3BackstageDataGather.git
 cd InfiniViewV3BackstageDataGather
-```
-
-### 2. Install
-
-```bat
 install-server.bat
 ```
 
-Runs `npm ci`, Playwright Chromium install, and build.
+1. Edit `.env` (copy from `.env.example`) — Google credentials, optional `MONGODB_URI`
+2. `npm run login` — one-time Backstage browser login; session saved to `data/auth/backstage-auth.json`
+3. `start-server.bat` — dashboard at http://localhost:3099
+4. `setup-server-reliability.bat` — Windows scheduled tasks for boot, watchdog, auto-update
 
-### 3. Configure `.env`
-
-Copy values into `.env` (created from `.env.example`):
-
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` (use `\n` for newlines)
-- `GOOGLE_DRIVE_FOLDER_ID`
-- `GOOGLE_MASTER_SHEET_ID`
-- `MONGODB_URI` (optional but recommended for production)
-
-Share your Drive folder and Google Sheet with the service account email (Editor access).
-
-### 4. Log into Backstage once
-
-```bat
-npm run login
-```
-
-Browser opens. Log in fully, then press Enter. Session saves to `data/auth/backstage-auth.json` (never committed).
-
-### 5. Start the server
-
-```bat
-start-server.bat
-```
-
-- Dashboard: http://localhost:3099
-- Manual run: http://localhost:3099/run-now or `POST /run-now`
-
-### 6. 24/7 reliability (run once on server PC)
-
-```bat
-setup-server-reliability.bat
-```
-
-| Task | What it does |
-|------|----------------|
-| **InfiniViewBackstageGathererServer** | Starts at boot and logon |
-| **InfiniViewBackstageGathererWatchdog** | Every 5 min — restarts if port 3099 is down |
-| **InfiniViewBackstageGathererAutoUpdate** | Git pull backup every 15 min |
-
-Also set Windows Power → Sleep = **Never**.
-
-Optional extra auto-update: `setup-auto-update.bat`
-
-After restart, a **catch-up gather** runs (~3 min delay) if nothing succeeded yet today (`GATHERER_CATCHUP_ON_STARTUP=true`).
-
----
-
-## Dev PC — push updates
-
-```bat
-git add .
-git commit -m "Your change description"
-git push origin main
-```
-
-Within ~15 minutes the server PC pulls, runs `npm ci`, `npm run build`, and restarts.
-
-Trigger an immediate check from the dashboard: **Check for Updates**.
+**Detailed run guide:** [Plan/HOW_TO_RUN.md](Plan/HOW_TO_RUN.md) (preserved operational reference)
 
 ---
 
@@ -148,95 +97,104 @@ Trigger an immediate check from the dashboard: **Check for Updates**.
 
 | Method | Command |
 |--------|---------|
-| Batch file | `run-now.bat` |
+| Batch | `run-now.bat` |
 | npm | `npm run gather` |
-| Browser | Dashboard → Run Gatherer Now |
+| Dashboard | http://localhost:3099 → Run Backstage Gatherer |
 | API | `POST http://localhost:3099/run-now` |
 | Full pipeline | `npm run pipeline` (gather + profile acquire) |
 | Visible debug | `npm run gather:visible` |
-
-### Additional jobs
-
-| Script | Purpose |
-|--------|---------|
-| `npm run enrich` | Sheet/CRM enrichment pass |
-| `npm run profile-acquire` | TikTok public profile scraper |
-| `npm run snapshot-history:import` | Daily snapshot history import |
-| `npm run snapshot-history:backfill` | Historical backfill |
-| `npm run preflight` | Pre-run health check |
 
 ---
 
 ## Scheduled runs
 
-Four times daily (Eastern Time, configurable in `.env`):
+Default fixed schedule (America/New_York, configurable via `RUN_SCHEDULE_1`–`RUN_SCHEDULE_4`):
 
-- 8:00 AM
-- 12:00 PM
-- 4:00 PM
-- 8:00 PM
+- 8:00 AM, 12:00 PM, 4:00 PM, 8:00 PM
 
-Nightly snapshot history import and optional Auto Highlights scan hooks are also available (see `.env` flags).
+Additional scheduled jobs:
 
----
-
-## MongoDB collections (when `MONGODB_URI` is set)
-
-| Collection | Purpose |
-|------------|---------|
-| `creators` | Current merged creator row (upserted by `backstage_creator_id`) |
-| `creator_performance_snapshots` | One performance snapshot per creator per calendar day |
-| `creator_daily_snapshots` | Daily snapshot history for Command Center math |
-| `gatherer_import_runs` | Run metadata (counts, success, timestamps) |
+- **Snapshot history import** — nightly at `GATHERER_SNAPSHOT_HISTORY_IMPORT_TIME` (default 00:30 ET)
+- **Auto Highlights scan** — hourly 8 AM–8 PM ET when explicitly enabled (disabled by default)
 
 ---
 
-## Output per run
+## Build and validation
 
-Local files in `data/raw/` and `data/processed/`:
+```bat
+npm ci
+npm run build
+```
 
-- `backstage-performance-YYYY-MM-DD-HHmm.xlsx`
-- `backstage-management-YYYY-MM-DD-HHmm.xlsx`
-- `combined-creators-YYYY-MM-DD.xlsx`
-- `combined-creators-YYYY-MM-DD.csv`
-- `combined-creators-YYYY-MM-DD.json`
-- `import-summary-YYYY-MM-DD-HHmm.json`
+CI runs the same on `windows-latest` with Node 20 — see [Documentation/BUILD_AND_DEPLOYMENT.md](Documentation/BUILD_AND_DEPLOYMENT.md).
 
-Also uploaded to Google Drive and written to Google Sheet tabs.
+There is **no** `npm test` script and **no** test gate in CI.
 
 ---
 
-## Files not in GitHub (server PC only)
+## Documentation index
 
-| File | Purpose |
-|------|---------|
-| `.env` | Google credentials, ports, schedules |
-| `data/auth/backstage-auth.json` | Saved Backstage browser session |
+### Root
 
-Copy `backstage-auth.json` from dev PC or run `npm run login` once on the server.
+| Document | Purpose |
+|----------|---------|
+| [CHANGELOG.md](CHANGELOG.md) | Release and unreleased changes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow and PR checklist |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting and secret handling |
+
+### Documentation/
+
+| Document | Purpose |
+|----------|---------|
+| [PROJECT_OVERVIEW.md](Documentation/PROJECT_OVERVIEW.md) | Purpose, users, workflows |
+| [ARCHITECTURE.md](Documentation/ARCHITECTURE.md) | Components and diagrams |
+| [FEATURE_INVENTORY.md](Documentation/FEATURE_INVENTORY.md) | Evidence-based feature table |
+| [DATA_FLOW_AND_SOURCES.md](Documentation/DATA_FLOW_AND_SOURCES.md) | Source-of-truth matrix |
+| [API_REFERENCE.md](Documentation/API_REFERENCE.md) | Express dashboard endpoints |
+| [AUTHENTICATION_AND_ROLES.md](Documentation/AUTHENTICATION_AND_ROLES.md) | Backstage session and access model |
+| [CONFIGURATION_REFERENCE.md](Documentation/CONFIGURATION_REFERENCE.md) | All environment variables |
+| [LOCAL_DEVELOPMENT.md](Documentation/LOCAL_DEVELOPMENT.md) | Dev PC setup |
+| [BUILD_AND_DEPLOYMENT.md](Documentation/BUILD_AND_DEPLOYMENT.md) | CI, server deployment, two-PC flow |
+| [TESTING_AND_QUALITY.md](Documentation/TESTING_AND_QUALITY.md) | Validation commands and gaps |
+| [TROUBLESHOOTING.md](Documentation/TROUBLESHOOTING.md) | Common failures |
+| [SECURITY_MODEL.md](Documentation/SECURITY_MODEL.md) | Trust boundaries and gaps |
+| [KNOWN_LIMITATIONS.md](Documentation/KNOWN_LIMITATIONS.md) | Confirmed limitations |
+| [DEPRECATIONS_AND_LEGACY.md](Documentation/DEPRECATIONS_AND_LEGACY.md) | Legacy paths and disabled features |
+| [REPOSITORY_MAP.md](Documentation/REPOSITORY_MAP.md) | Directory guide |
+| [EXTERNAL_INTEGRATIONS.md](Documentation/EXTERNAL_INTEGRATIONS.md) | TikTok, Google, MongoDB, InfiniView API |
+| [OBSERVABILITY_AND_LOGGING.md](Documentation/OBSERVABILITY_AND_LOGGING.md) | Logging and diagnostics |
+| [MAINTENANCE_CHECKLIST.md](Documentation/MAINTENANCE_CHECKLIST.md) | PR, release, and ops checklists |
+| [AUDIT_2026-07-11.md](Documentation/AUDIT_2026-07-11.md) | Point-in-time audit snapshot |
+
+### Legacy docs (preserved)
+
+| Path | Notes |
+|------|-------|
+| [docs/](docs/) | Backstage export steps, field map, Google setup, troubleshooting |
+| [Plan/HOW_TO_RUN.md](Plan/HOW_TO_RUN.md) | Step-by-step run guide |
 
 ---
 
-## Backstage UI changes
+## Source-of-truth hierarchy
 
-If TikTok changes Backstage UI, edit:
+1. **Executable source code** and active `.env` on the server PC — authoritative for behavior
+2. **CHANGELOG.md** — authoritative for released change history
+3. **Documentation/AUDIT_2026-07-11.md** — dated snapshot; may drift after code changes
+4. **Runtime monitoring** — authoritative for live uptime, quotas, and deployment state
 
-`src/backstage/backstageSelectors.ts`
-
-See `docs/BACKSTAGE_EXPORT_STEPS.md` for export navigation notes.
+Documentation does not prove that every integration path has been exhaustively tested in production.
 
 ---
 
-## Troubleshooting
+## Known limitations (summary)
 
-See `docs/TROUBLESHOOTING.md`.
+- No authentication on dashboard `/run-now` endpoints (LAN-trusted model)
+- No automated test suite in CI
+- Backstage UI changes can break Playwright selectors
+- `/run-now` and manual triggers block the Express thread until the job completes
+- Auto Highlights scan is opt-in and requires `INFINIVIEW_INTERNAL_SERVICE_SECRET`
 
-| Symptom | Fix |
-|---------|-----|
-| Logged out of Backstage | `npm run login` |
-| Google permission denied | Share folder/sheet with service account email |
-| Export button not found | Update `backstageSelectors.ts` |
-| Update not applying | Ensure `start-server.bat` is running |
+See [Documentation/KNOWN_LIMITATIONS.md](Documentation/KNOWN_LIMITATIONS.md) for the full list.
 
 ---
 
@@ -244,13 +202,7 @@ See `docs/TROUBLESHOOTING.md`.
 
 | Repo | Role |
 |------|------|
-| [iViewV3](https://github.com/jrftw/iViewV3) | Consumes MongoDB data via InfiniView API |
+| [iViewV3](https://github.com/jrftw/iViewV3) | Creator app; consumes MongoDB via InfiniView API |
 | [InfiniCoreAPI](https://github.com/jrftw/InfiniCoreAPI) | Shared creator features |
 | [InfinitumServerAgent](https://github.com/jrftw/InfinitumServerAgent) | Optional warehouse handoff |
 | [InfiniViewV3-InfiniCoreApi-BSGather](https://github.com/jrftw/InfiniViewV3-InfiniCoreApi-BSGather) | Mass workspace |
-
----
-
-## License
-
-Proprietary — Infinitum Imagery LLC. All rights reserved.

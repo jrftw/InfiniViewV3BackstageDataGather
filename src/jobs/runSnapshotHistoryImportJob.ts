@@ -2,21 +2,21 @@
  * Filename: runSnapshotHistoryImportJob.ts
  * Purpose: CLI entry for Priority 1 Daily Snapshot History Engine import.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-10
+ * Last Modified: 2026-07-15
  * Dependencies: config, gathererSnapshotHistoryImportService
  * Platform Compatibility: Node.js 18+
  */
 
 import { loadGathererConfig } from "../config";
 import { gathererSnapshotHistoryRunImport } from "../snapshotHistory/gathererSnapshotHistoryImportService";
-import { gathererInfiniviewCommunityHighlightScanClientRun } from "../services/gathererInfiniviewCommunityHighlightScanClient";
 import { logError, logInfo } from "../logging/logger";
 
 const GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE = "runSnapshotHistoryImportJob";
 
 // MARK: Date Helpers
 
-function gathererRunSnapshotHistoryImportJobYesterdayDateKey(timezone: string): string {
+/** Yesterday's YYYY-MM-DD in the Gatherer business timezone (default America/New_York). */
+export function gathererRunSnapshotHistoryImportJobYesterdayDateKey(timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -103,14 +103,10 @@ export async function runSnapshotHistoryImportJob(argv: string[] = process.argv.
     errorCount: result.errors.length,
   });
 
-  if (result.success) {
-    void gathererInfiniviewCommunityHighlightScanClientRun(config, {
-      trigger: "snapshot-import",
-    });
-  }
-
   return result.success ? 0 : 1;
 }
+
+// MARK: CLI Entry
 
 async function gathererRunSnapshotHistoryImportJobMain(): Promise<void> {
   const exitCode = await runSnapshotHistoryImportJob(process.argv.slice(2));
@@ -119,14 +115,16 @@ async function gathererRunSnapshotHistoryImportJobMain(): Promise<void> {
   }
 }
 
-gathererRunSnapshotHistoryImportJobMain().catch((error) => {
-  logError(
-    "Snapshot history import job crashed",
-    GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE,
-    { error: error instanceof Error ? error.message : String(error) }
-  );
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  gathererRunSnapshotHistoryImportJobMain().catch((error) => {
+    logError(
+      "Snapshot history import job crashed",
+      GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE,
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+    process.exitCode = 1;
+  });
+}
 
 // Suggestions For Features and Additions Later:
 // - --verify flag to run month verification immediately after import

@@ -2,7 +2,7 @@
  * Filename: gathererSnapshotHistoryImportService.ts
  * Purpose: Import Drive daily archives into creator_daily_snapshots (Priority 1 history engine).
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-09
+ * Last Modified: 2026-07-15
  * Dependencies: mongodb, snapshot history modules, gathererMongoIndexBootstrap
  * Platform Compatibility: Node.js 18+
  */
@@ -423,6 +423,23 @@ export async function gathererSnapshotHistoryRunImport(
   }
 
   const finishedAt = new Date().toISOString();
+
+  // Scheduled nightly must see Drive archives. An empty scan used to report success
+  // and freeze Command Center asOfDate until a manual catch-up.
+  if (options.trigger === "scheduled" && filesScanned === 0) {
+    const emptyScanMessage =
+      "Scheduled snapshot history import found 0 Drive archive spreadsheets — refusing success";
+    errors.push({
+      fileName: "(drive-scan)",
+      date: options.importThroughDate ?? options.snapshotDate ?? "",
+      message: emptyScanMessage,
+    });
+    logError(emptyScanMessage, GATHERER_SNAPSHOT_HISTORY_IMPORT_SERVICE_SOURCE, {
+      importRunId,
+      importThroughDate: options.importThroughDate ?? null,
+    });
+  }
+
   const success = errors.length === 0;
 
   const runDocument: GathererSnapshotImportRunDocument = {

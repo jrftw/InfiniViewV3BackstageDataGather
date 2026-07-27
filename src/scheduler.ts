@@ -2,7 +2,7 @@
  * Filename: scheduler.ts
  * Purpose: Schedule gatherer runs — fixed times or randomized daily plan with jitter.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-15
+ * Last Modified: 2026-07-27
  * Dependencies: node-cron, gathererSchedulePlanner, snapshot history import job
  * Platform Compatibility: Node.js 18+
  */
@@ -18,6 +18,7 @@ import { logInfo, logError } from "./logging/logger";
 import {
   GathererPlannedRun,
   gathererFilterFuturePlannedRuns,
+  gathererSelectMidnightRebuildCatchUpRuns,
   planGathererDailyRuns,
 } from "./scheduler/gathererSchedulePlanner";
 import { gathererInfiniviewCommunityHighlightScanClientRun } from "./services/gathererInfiniviewCommunityHighlightScanClient";
@@ -157,7 +158,23 @@ function gathererScheduleMidnightReschedule(config: GathererConfig): void {
   const delayMs = gathererMsUntilNextMidnight(config.timezone);
   gathererMidnightRescheduleTimer = setTimeout(() => {
     logInfo("Midnight reached — generating a new daily gatherer schedule", GATHERER_SCHEDULER_SOURCE);
+    const allPlannedRuns = planGathererDailyRuns(config);
     gathererScheduleRunsForToday(config);
+
+    // Midnight rebuild runs a few seconds after 00:00, so the 00:00 cron is filtered out
+    // as past-due and would never fire without this immediate catch-up trigger.
+    const midnightCatchUpRuns = gathererSelectMidnightRebuildCatchUpRuns(
+      allPlannedRuns,
+      config.timezone
+    );
+    for (const plannedRun of midnightCatchUpRuns) {
+      logInfo(
+        `Triggering ${plannedRun.timeLabel} gatherer run recovered after midnight schedule rebuild`,
+        GATHERER_SCHEDULER_SOURCE
+      );
+      void gathererTriggerPlannedRun(config, plannedRun);
+    }
+
     gathererScheduleMidnightReschedule(config);
   }, delayMs);
 }
@@ -390,3 +407,4 @@ export function startGathererScheduler(config: GathererConfig): void {
 // - Skip run if last run was within N minutes (already enforced at trigger time)
 // - Expose today's planned schedule on dashboard API
 // - Alert/webhook when snapshot history import fails after retry
+// - Persist midnight rebuild catch-up outcome to last-run / ops dashboard

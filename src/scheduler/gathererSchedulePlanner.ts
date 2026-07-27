@@ -2,7 +2,7 @@
  * Filename: gathererSchedulePlanner.ts
  * Purpose: Build fixed or randomized daily gatherer run times with daily-archive slot.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-25
+ * Last Modified: 2026-07-27
  * Dependencies: GathererConfig
  * Platform Compatibility: Node.js 18+
  */
@@ -176,11 +176,10 @@ export function planGathererDailyRuns(config: GathererConfig): GathererPlannedRu
   return gathererPlanFixedDailyRuns(config);
 }
 
-export function gathererFilterFuturePlannedRuns(
-  plannedRuns: GathererPlannedRun[],
+function gathererSchedulePlannerReadTimezoneMinutes(
   timezone: string,
   now: Date = new Date()
-): GathererPlannedRun[] {
+): number {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     hour: "2-digit",
@@ -190,7 +189,15 @@ export function gathererFilterFuturePlannedRuns(
   const parts = formatter.formatToParts(now);
   const hour = Number.parseInt(parts.find((part) => part.type === "hour")?.value ?? "0", 10);
   const minute = Number.parseInt(parts.find((part) => part.type === "minute")?.value ?? "0", 10);
-  const nowMinutes = hour * 60 + minute;
+  return hour * 60 + minute;
+}
+
+export function gathererFilterFuturePlannedRuns(
+  plannedRuns: GathererPlannedRun[],
+  timezone: string,
+  now: Date = new Date()
+): GathererPlannedRun[] {
+  const nowMinutes = gathererSchedulePlannerReadTimezoneMinutes(timezone, now);
 
   return plannedRuns.filter((run) => {
     const runMinutes = gathererScheduleParseTimeToMinutes(run.timeLabel);
@@ -198,6 +205,28 @@ export function gathererFilterFuturePlannedRuns(
   });
 }
 
+/**
+ * Midnight schedule rebuild runs a few seconds after 00:00, so the 00:00 cron slot is
+ * filtered out as "past" and would never fire. Return that slot while still inside the
+ * early-morning grace window so the scheduler can trigger it immediately.
+ */
+export function gathererSelectMidnightRebuildCatchUpRuns(
+  plannedRuns: GathererPlannedRun[],
+  timezone: string,
+  now: Date = new Date(),
+  graceMinutesAfterMidnight = 10
+): GathererPlannedRun[] {
+  const nowMinutes = gathererSchedulePlannerReadTimezoneMinutes(timezone, now);
+  if (nowMinutes > graceMinutesAfterMidnight) {
+    return [];
+  }
+
+  return plannedRuns.filter(
+    (run) => gathererScheduleParseTimeToMinutes(run.timeLabel) === 0
+  );
+}
+
 // Suggestions For Features and Additions Later:
 // - Persist today's planned times to data/logs/daily-schedule.json for debugging
 // - Weight random runs toward business hours peaks
+// - Unit-test midnight rebuild catch-up against DST transition midnights

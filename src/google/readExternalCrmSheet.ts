@@ -31,7 +31,14 @@ function readExternalCrmSheetNormalizeHeader(raw: string): string {
     .replace(/[^a-z0-9_]/g, "");
 }
 
-function readExternalCrmSheetMapHeader(raw: string): keyof CrmSheetEnrichmentRow | null {
+/**
+ * Exported so writers target the exact column this reader consumes. Any tool
+ * that edits the CRM sheet must resolve headers identically or it can silently
+ * write to the wrong column.
+ */
+export function readExternalCrmSheetMapHeader(
+  raw: string
+): keyof CrmSheetEnrichmentRow | null {
   const normalized = readExternalCrmSheetNormalizeHeader(raw);
   return READ_EXTERNAL_CRM_SHEET_HEADER_ALIASES[normalized] ?? null;
 }
@@ -90,7 +97,11 @@ function readExternalCrmSheetParseRows(rows: string[][]): CrmSheetEnrichmentRow[
 
 // MARK: - Tab Resolution
 
-async function readExternalCrmSheetResolveTabName(
+/**
+ * Exported so writers open the same tab the pipeline reads (leftmost unless
+ * GOOGLE_CRM_SHEET_TAB pins one).
+ */
+export async function readExternalCrmSheetResolveTabName(
   config: GathererConfig
 ): Promise<{ tabName: string; spreadsheetTitle: string }> {
   return resolveGoogleSheetTabName(config, {

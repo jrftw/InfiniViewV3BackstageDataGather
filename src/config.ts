@@ -90,6 +90,7 @@ export interface GathererConfig {
   gathererExcludeGraduationStatuses: string[];
   gathererUpdateMasterDailyTab: boolean;
   gathererMasterSheetIncrementalUpdates: boolean;
+  gathererMasterSheetRefreshSyncMetadata: boolean;
   profileAcquirerEnabled: boolean;
   profileAcquirerRunAfterBackstage: boolean;
   profileAcquirerAfterBackstageNewOnly: boolean;
@@ -273,6 +274,8 @@ export function loadGathererConfig(): GathererConfig {
     gathererUpdateMasterDailyTab: process.env.GATHERER_UPDATE_MASTER_DAILY_TAB === "true",
     gathererMasterSheetIncrementalUpdates:
       process.env.GATHERER_MASTER_SHEET_INCREMENTAL_UPDATES !== "false",
+    gathererMasterSheetRefreshSyncMetadata:
+      process.env.GATHERER_MASTER_SHEET_REFRESH_SYNC_METADATA !== "false",
     profileAcquirerEnabled: process.env.GATHERER_PROFILE_ACQUIRER_ENABLED !== "false",
     profileAcquirerRunAfterBackstage:
       process.env.GATHERER_PROFILE_ACQUIRER_AFTER_BACKSTAGE === "true",

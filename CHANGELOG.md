@@ -9,6 +9,13 @@ Versioning follows `package.json` (`1.0.0` as of 2026-07-11 audit).
 
 ## [Unreleased]
 
+### Added
+
+- `npm run crm:set-login-enabled` — ops tool to set the CRM sheet `login_enabled`
+  flag that gates InfiniView sign-in. Dry run by default, requires `--apply` to
+  write, and warns when the target tab is a transient dated CRM export whose
+  edits a later export would supersede.
+
 ### Documentation
 
 - Complete documentation system rebuild (2026-07-11 audit):

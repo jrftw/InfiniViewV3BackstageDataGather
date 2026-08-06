@@ -105,6 +105,16 @@ export interface GathererConfig {
   gathererMongoEnabled: boolean;
   /** When true (default), keep one performance snapshot per creator per calendar day. */
   gathererMongoSnapshotOnePerDay: boolean;
+  /**
+   * When true (default), creators missing from the active output are marked departed in
+   * MongoDB so the app stops showing them. Nothing is ever deleted.
+   */
+  gathererMongoDepartedTombstoneEnabled: boolean;
+  /**
+   * Fraction (0.01–1) of non-departed creators a single run may tombstone before the
+   * sweep refuses to run. Guards against an incomplete Backstage export wiping the roster.
+   */
+  gathererMongoDepartedTombstoneMaxRatio: number;
   /** When true, nightly job imports Drive daily archives into creator_daily_snapshots. */
   gathererSnapshotHistoryImportEnabled: boolean;
   /** Cron time (HH:MM, America/New_York) for snapshot history import — default 00:30. */
@@ -194,6 +204,8 @@ export function gathererIsInfiniviewHighlightScanEnabled(
     config.infiniviewInternalServiceSecret.trim().length > 0
   );
 }
+
+
 
 // MARK: - Configuration Loader
 
@@ -294,6 +306,11 @@ export function loadGathererConfig(): GathererConfig {
     mongodbDbName: process.env.MONGODB_DB_NAME ?? "InfiniViewV3",
     gathererMongoEnabled: process.env.GATHERER_MONGODB_ENABLED !== "false",
     gathererMongoSnapshotOnePerDay: process.env.GATHERER_MONGO_SNAPSHOT_ONE_PER_DAY !== "false",
+    gathererMongoDepartedTombstoneEnabled:
+      process.env.GATHERER_MONGO_DEPARTED_TOMBSTONE_ENABLED !== "false",
+    gathererMongoDepartedTombstoneMaxRatio: Number(
+      process.env.GATHERER_MONGO_DEPARTED_TOMBSTONE_MAX_RATIO ?? 0.5
+    ),
     gathererSnapshotHistoryImportEnabled:
       process.env.GATHERER_SNAPSHOT_HISTORY_IMPORT_ENABLED !== "false",
     gathererSnapshotHistoryImportTime:

@@ -2,7 +2,7 @@
  * Filename: gathererMongoCollections.ts
  * Purpose: MongoDB collection name constants for Backstage Gatherer production output.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-27
+ * Last Modified: 2026-08-03
  * Dependencies: none
  * Platform Compatibility: Node.js 18+
  */
@@ -40,3 +40,4 @@ export const GATHERER_MONGO_ALL_COLLECTIONS = [
 // Suggestions For Features and Additions Later:
 // - Separate unmatched_rows collection for ops dashboards
 // - crm_sync_logs collection when CRM push is automated
+// - Analytics+ collections live in InfiniView-V3 Analytics+ Gatherer package

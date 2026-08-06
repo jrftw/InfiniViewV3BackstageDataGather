@@ -2,8 +2,8 @@
  * Filename: gathererMongoIndexBootstrap.ts
  * Purpose: Ensure gatherer MongoDB collections and indexes exist before publish.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-09
- * Dependencies: mongodb, gathererMongoCollections, gathererMongoClient, gathererMongoSnapshotRetention, logger
+ * Last Modified: 2026-08-05
+ * Dependencies: mongodb, gathererMongoCollections, gathererMongoClient, gathererMongoSnapshotRetention, gathererMongoRosterMembership, logger
  * Platform Compatibility: Node.js 18+
  */
 
@@ -20,6 +20,10 @@ import {
 } from "./gathererMongoCollections";
 import { gathererConnectMongo } from "./gathererMongoClient";
 import { gathererMongoSnapshotRetentionDeduplicateByDay } from "./gathererMongoSnapshotRetention";
+import {
+  GATHERER_ROSTER_MEMBERSHIP_FIELD_LAST_ACTIVE_RUN_ID,
+  GATHERER_ROSTER_MEMBERSHIP_FIELD_STATUS,
+} from "./gathererMongoRosterMembership";
 import { logDebug, logInfo } from "../logging/logger";
 
 const GATHERER_MONGO_INDEX_BOOTSTRAP_SOURCE = "gathererMongoIndexBootstrap";
@@ -82,6 +86,19 @@ async function gathererEnsureMongoIndexes(db: Db, config: GathererConfig): Promi
     { key: { tiktok_username: 1 }, name: "gatherer_creators_tiktok_username" },
     { key: { last_successful_sync_at: -1 }, name: "gatherer_creators_last_successful_sync_at" },
     { key: { import_run_id: 1 }, name: "gatherer_creators_import_run_id" },
+    // Backs the departed-creator tombstone sweep and every read path that filters
+    // departed creators out of rankings, spotlights, and the creator directory.
+    {
+      key: { [GATHERER_ROSTER_MEMBERSHIP_FIELD_STATUS]: 1 },
+      name: "gatherer_creators_roster_membership_status",
+    },
+    {
+      key: {
+        [GATHERER_ROSTER_MEMBERSHIP_FIELD_STATUS]: 1,
+        [GATHERER_ROSTER_MEMBERSHIP_FIELD_LAST_ACTIVE_RUN_ID]: 1,
+      },
+      name: "gatherer_creators_roster_membership_status_run",
+    },
   ]);
 
   const performanceSnapshotIndexes: IndexDescription[] =

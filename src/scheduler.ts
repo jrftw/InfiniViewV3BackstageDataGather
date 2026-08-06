@@ -2,7 +2,7 @@
  * Filename: scheduler.ts
  * Purpose: Schedule gatherer runs — fixed times or randomized daily plan with jitter.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-27
+ * Last Modified: 2026-08-03
  * Dependencies: node-cron, gathererSchedulePlanner, snapshot history import job
  * Platform Compatibility: Node.js 18+
  */

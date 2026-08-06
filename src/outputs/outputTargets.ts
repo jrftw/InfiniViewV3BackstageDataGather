@@ -2,7 +2,7 @@
  * Filename: outputTargets.ts
  * Purpose: Pluggable output interface — local, Drive, Sheets, future DB.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-23
+ * Last Modified: 2026-08-05
  * Platform Compatibility: Node.js 18+
  */
 
@@ -15,10 +15,12 @@ import { readExternalCrmSheetTab } from "../google/readExternalCrmSheet";
 import { readExternalDipSheetTab } from "../google/readExternalDipSheet";
 import { GathererRunContext } from "../jobs/gathererRunContext";
 import { CombinedCreatorRecord } from "../processing/mergeBackstageReports";
+import { FilterActiveCreatorsExcludedEntry } from "../processing/filterActiveCreators";
 import { ParsedBackstageRow } from "../processing/parseWorkbook";
 import { ImportSummaryData } from "../logging/importSummary";
 import { SyncLogAppendRow } from "../google/syncSheetTabs";
 import { logInfo, logError } from "../logging/logger";
+import { gathererLogOk, gathererLogWarn } from "../logging/friendlyLog";
 import { publishCreatorsToMongo } from "../mongo/publishCreatorsToMongo";
 
 // MARK: - Output Context
@@ -34,6 +36,11 @@ export interface GathererOutputContext {
   summary: ImportSummaryData;
   allLocalFiles: string[];
   syncLog?: SyncLogAppendRow;
+  /**
+   * Creators the active-roster filter dropped this run. MongoDB uses these to record a
+   * specific departure reason when tombstoning, instead of the generic "absent" fallback.
+   */
+  excludedCreators?: FilterActiveCreatorsExcludedEntry[];
 }
 
 export interface GathererPublishResult {
@@ -156,13 +163,28 @@ export const mongoDbOutputTarget: OutputTarget = {
       const mongoResult = await publishCreatorsToMongo(
         context.config,
         context.creators,
-        context.summary
+        context.summary,
+        context.excludedCreators ?? []
       );
       gathererLastMongoPublishStats = {
         published: mongoResult.published,
         creatorsUpserted: mongoResult.creatorsUpserted,
         snapshotsInserted: mongoResult.snapshotsInserted,
       };
+
+      const sweep = mongoResult.rosterMembershipSweep;
+      if (sweep?.skippedReason) {
+        gathererLogWarn(
+          "Departed creator sweep skipped",
+          `${sweep.skippedReason} — quit or removed creators may still appear in the app`
+        );
+      } else if (sweep && sweep.markedDepartedCount > 0) {
+        gathererLogOk(
+          "Departed creators hidden",
+          `${sweep.markedDepartedCount} marked off-network (data kept) · ${sweep.alreadyDepartedCount} already marked`
+        );
+      }
+
       return mongoResult.published;
     } catch (error) {
       logError("MongoDB publish failed", "MongoDbOutput", {

@@ -2,7 +2,7 @@
  * Filename: gathererProcessPipeline.ts
  * Purpose: Shared merge, filter, CRM enrichment, local output, and Google publish pipeline.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-24
+ * Last Modified: 2026-08-05
  * Dependencies: processing, outputs, logging
  * Platform Compatibility: Node.js 18+
  */
@@ -366,6 +366,7 @@ export async function runGathererProcessPipeline(
     summary,
     allLocalFiles,
     syncLog: syncLogRow,
+    excludedCreators: filterResult.excludedCreators,
   });
 
   summary = buildImportSummary({

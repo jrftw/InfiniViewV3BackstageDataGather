@@ -1,15 +1,16 @@
 /**
  * Filename: publishCreatorsToMongo.ts
- * Purpose: Upsert creators, upsert one daily performance snapshot per creator, and record import runs in MongoDB.
+ * Purpose: Upsert creators, tombstone departed creators, upsert one daily performance snapshot per creator, and record import runs in MongoDB.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-09
- * Dependencies: mongodb, config, logger, gathererMongoClient, gathererMongoIndexBootstrap, gathererCreatorMongoMapper
+ * Last Modified: 2026-08-05
+ * Dependencies: mongodb, config, logger, gathererMongoClient, gathererMongoIndexBootstrap, gathererCreatorMongoMapper, gathererMongoRosterMembership
  * Platform Compatibility: Node.js 18+
  */
 
 import { AnyBulkWriteOperation } from "mongodb";
 import { GathererConfig } from "../config";
 import { CombinedCreatorRecord } from "../processing/mergeBackstageReports";
+import { FilterActiveCreatorsExcludedEntry } from "../processing/filterActiveCreators";
 import { ImportSummaryData } from "../logging/importSummary";
 import { logError, logInfo } from "../logging/logger";
 import { gathererFormatDateKeyInTimezone } from "../utils/dates";
@@ -27,6 +28,12 @@ import {
   GathererMongoCreatorDocument,
   GathererMongoPerformanceSnapshotDocument,
 } from "./gathererCreatorMongoMapper";
+import {
+  gathererRosterMembershipBuildActiveStampFields,
+  gathererRosterMembershipBuildDeparturesFromExclusions,
+  gathererRosterMembershipMarkDepartedCreators,
+  GathererRosterMembershipSweepResult,
+} from "./gathererMongoRosterMembership";
 
 const GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE = "publishCreatorsToMongo";
 
@@ -48,6 +55,8 @@ export interface GathererMongoPublishResult {
   creatorsSkipped: number;
   snapshotsInserted: number;
   importRunRecorded: boolean;
+  /** Outcome of the departed-creator tombstone sweep, or null when no creators were published. */
+  rosterMembershipSweep: GathererRosterMembershipSweepResult | null;
 }
 
 // MARK: Bulk Write Helpers
@@ -61,15 +70,20 @@ function gathererMongoPublishChunkArray<T>(items: T[], chunkSize: number): T[][]
 }
 
 async function gathererMongoPublishUpsertCreators(
-  creatorDocuments: GathererMongoCreatorDocument[]
+  creatorDocuments: GathererMongoCreatorDocument[],
+  runId: string,
+  seenAt: string
 ): Promise<number> {
   const db = gathererGetMongoDb();
   const collection = db.collection<GathererMongoCreatorDocument>(GATHERER_MONGO_COLLECTION_CREATORS);
+  const activeStampFields = gathererRosterMembershipBuildActiveStampFields(runId, seenAt);
   let upsertedCount = 0;
 
   for (const chunk of gathererMongoPublishChunkArray(creatorDocuments, GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE)) {
     const operations: AnyBulkWriteOperation<GathererMongoCreatorDocument>[] = chunk.map((document) => {
-      const setFields: Record<string, unknown> = { ...document };
+      // The active membership stamp is what the tombstone sweep keys off, so it must be
+      // written in the same operation that proves the creator is still on the roster.
+      const setFields: Record<string, unknown> = { ...document, ...activeStampFields };
 
       for (const preserveField of GATHERER_MONGO_PRESERVE_ON_NULL_FIELDS) {
         const incomingValue = document[preserveField];
@@ -151,7 +165,8 @@ async function gathererMongoPublishRecordImportRun(
 export async function publishCreatorsToMongo(
   config: GathererConfig,
   creators: CombinedCreatorRecord[],
-  summary: ImportSummaryData
+  summary: ImportSummaryData,
+  excludedCreators: readonly FilterActiveCreatorsExcludedEntry[] = []
 ): Promise<GathererMongoPublishResult> {
   const mongoWrittenAt = new Date().toISOString();
   const snapshotDateKey = gathererFormatDateKeyInTimezone(config.timezone, new Date(mongoWrittenAt));
@@ -161,6 +176,7 @@ export async function publishCreatorsToMongo(
     creatorsSkipped: creators.length,
     snapshotsInserted: 0,
     importRunRecorded: false,
+    rosterMembershipSweep: null,
   };
 
   await gathererConnectMongo(config);
@@ -195,17 +211,33 @@ export async function publishCreatorsToMongo(
   }
 
   try {
-    const creatorsUpserted = await gathererMongoPublishUpsertCreators(creatorDocuments);
+    const creatorsUpserted = await gathererMongoPublishUpsertCreators(
+      creatorDocuments,
+      summary.runId,
+      mongoWrittenAt
+    );
+
+    // Runs only after the upsert above resolved without throwing, so every creator on the
+    // active roster is guaranteed to carry this run's membership stamp before the sweep
+    // decides who is missing.
+    const rosterMembershipSweep = await gathererRosterMembershipMarkDepartedCreators(
+      config,
+      summary.runId,
+      mongoWrittenAt,
+      gathererRosterMembershipBuildDeparturesFromExclusions(excludedCreators)
+    );
+
     const snapshotsInserted = await gathererMongoPublishUpsertPerformanceSnapshots(snapshotDocuments);
     await gathererMongoPublishRecordImportRun(summary, true, mongoWrittenAt);
 
     logInfo(
-      `MongoDB publish complete — ${creatorsUpserted} creators upserted, ${snapshotsInserted} daily snapshots upserted`,
+      `MongoDB publish complete — ${creatorsUpserted} creators upserted, ${snapshotsInserted} daily snapshots upserted, ${rosterMembershipSweep.markedDepartedCount} creators marked departed`,
       GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE,
       {
         creatorsSkipped,
         database: config.mongodbDbName,
         snapshotDateKey,
+        rosterMembershipSweepSkippedReason: rosterMembershipSweep.skippedReason,
       }
     );
 
@@ -215,6 +247,7 @@ export async function publishCreatorsToMongo(
       creatorsSkipped,
       snapshotsInserted,
       importRunRecorded: true,
+      rosterMembershipSweep,
     };
   } catch (error) {
     logError("MongoDB publish failed", GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE, {
@@ -236,5 +269,5 @@ export async function publishCreatorsToMongo(
 
 // Suggestions For Features and Additions Later:
 // - Transaction wrapper for creators + snapshots + import_run atomic commit
-// - Mark creators missing from latest run with stale flag instead of deleting
+// - Record the tombstone sweep counts on the import run document for run-history reporting
 // - Optional TTL purge for snapshots older than N months

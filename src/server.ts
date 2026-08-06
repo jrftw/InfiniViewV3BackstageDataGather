@@ -2,7 +2,7 @@
  * Filename: server.ts
  * Purpose: Express server — manual run API, dashboard, status.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-06-26
+ * Last Modified: 2026-08-03
  * Dependencies: express
  * Platform Compatibility: Node.js 18+
  */
@@ -278,4 +278,4 @@ export function startGathererServer(config: GathererConfig): void {
 
 // Suggestions For Features and Additions Later:
 // - Basic auth for /run-now and /run-profile-acquirer endpoints
-// - Shared secret header for InfiniView → gatherer calls
+// - Shared secret header for InfiniView -> gatherer calls

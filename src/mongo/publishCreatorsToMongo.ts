@@ -2,7 +2,7 @@
  * Filename: publishCreatorsToMongo.ts
  * Purpose: Upsert creators, tombstone departed creators, upsert one daily performance snapshot per creator, and record import runs in MongoDB.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-08-05
+ * Last Modified: 2026-08-08
  * Dependencies: mongodb, config, logger, gathererMongoClient, gathererMongoIndexBootstrap, gathererCreatorMongoMapper, gathererMongoRosterMembership
  * Platform Compatibility: Node.js 18+
  */
@@ -34,10 +34,21 @@ import {
   gathererRosterMembershipMarkDepartedCreators,
   GathererRosterMembershipSweepResult,
 } from "./gathererMongoRosterMembership";
+import { gathererPerformanceDataPeriodCoversMonth } from "../processing/gathererPerformanceDataPeriodCoverage";
 
 const GATHERER_PUBLISH_CREATORS_TO_MONGO_SOURCE = "publishCreatorsToMongo";
 
 const GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE = 250;
+
+/**
+ * MTD fields that must not carry prior-month totals forward when performance_data_period still
+ * describes the previous calendar month (common on the 1st before the first August export lands).
+ */
+const GATHERER_MONGO_MONTHLY_MTD_FIELDS = [
+  "total_diamonds",
+  "live_duration_total_hours",
+  "valid_live_days_total",
+] as const;
 
 /** Non-monthly fields only — monthly totals must not carry stale prior-month values forward. */
 const GATHERER_MONGO_PRESERVE_ON_NULL_FIELDS = [
@@ -69,15 +80,46 @@ function gathererMongoPublishChunkArray<T>(items: T[], chunkSize: number): T[][]
   return chunks;
 }
 
+function gathererMongoPublishApplyStaleMtdPreservation(
+  setFields: Record<string, unknown>,
+  performanceDataPeriod: string | null | undefined,
+  currentMonthKey: string,
+  suppressStaleMtd: boolean
+): boolean {
+  if (!suppressStaleMtd) {
+    return false;
+  }
+
+  const periodCoversCurrentMonth = gathererPerformanceDataPeriodCoversMonth(
+    performanceDataPeriod,
+    currentMonthKey
+  );
+
+  if (periodCoversCurrentMonth) {
+    return false;
+  }
+
+  for (const monthlyField of GATHERER_MONGO_MONTHLY_MTD_FIELDS) {
+    setFields[monthlyField] = {
+      $ifNull: [`$${monthlyField}`, null],
+    };
+  }
+
+  return true;
+}
+
 async function gathererMongoPublishUpsertCreators(
   creatorDocuments: GathererMongoCreatorDocument[],
   runId: string,
-  seenAt: string
-): Promise<number> {
+  seenAt: string,
+  currentMonthKey: string,
+  suppressStaleMtd: boolean
+): Promise<{ upsertedCount: number; staleMtdPreservedCount: number }> {
   const db = gathererGetMongoDb();
   const collection = db.collection<GathererMongoCreatorDocument>(GATHERER_MONGO_COLLECTION_CREATORS);
   const activeStampFields = gathererRosterMembershipBuildActiveStampFields(runId, seenAt);
   let upsertedCount = 0;
+  let staleMtdPreservedCount = 0;
 
   for (const chunk of gathererMongoPublishChunkArray(creatorDocuments, GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE)) {
     const operations: AnyBulkWriteOperation<GathererMongoCreatorDocument>[] = chunk.map((document) => {
@@ -94,6 +136,18 @@ async function gathererMongoPublishUpsertCreators(
         }
       }
 
+      const staleMtdPreserved = gathererMongoPublishApplyStaleMtdPreservation(
+        setFields,
+        typeof document.performance_data_period === "string"
+          ? document.performance_data_period
+          : null,
+        currentMonthKey,
+        suppressStaleMtd
+      );
+      if (staleMtdPreserved) {
+        staleMtdPreservedCount += 1;
+      }
+
       return {
         updateOne: {
           filter: { backstage_creator_id: document.backstage_creator_id },
@@ -107,38 +161,54 @@ async function gathererMongoPublishUpsertCreators(
     upsertedCount += result.upsertedCount + result.modifiedCount + result.matchedCount;
   }
 
-  return upsertedCount;
+  return { upsertedCount, staleMtdPreservedCount };
 }
 
 async function gathererMongoPublishUpsertPerformanceSnapshots(
-  snapshotDocuments: GathererMongoPerformanceSnapshotDocument[]
-): Promise<number> {
+  snapshotDocuments: GathererMongoPerformanceSnapshotDocument[],
+  currentMonthKey: string,
+  suppressStaleMtd: boolean
+): Promise<{ upsertedCount: number; staleMtdPreservedCount: number }> {
   const db = gathererGetMongoDb();
   const collection = db.collection<GathererMongoPerformanceSnapshotDocument>(
     GATHERER_MONGO_COLLECTION_CREATOR_PERFORMANCE_SNAPSHOTS
   );
 
   let upsertedCount = 0;
+  let staleMtdPreservedCount = 0;
 
   for (const chunk of gathererMongoPublishChunkArray(snapshotDocuments, GATHERER_MONGO_BULK_WRITE_CHUNK_SIZE)) {
     const operations: AnyBulkWriteOperation<GathererMongoPerformanceSnapshotDocument>[] = chunk.map(
-      (document) => ({
-        updateOne: {
-          filter: {
-            backstage_creator_id: document.backstage_creator_id,
-            snapshot_date_key: document.snapshot_date_key,
+      (document) => {
+        const setFields: Record<string, unknown> = { ...document };
+        const staleMtdPreserved = gathererMongoPublishApplyStaleMtdPreservation(
+          setFields,
+          document.performance_data_period,
+          currentMonthKey,
+          suppressStaleMtd
+        );
+        if (staleMtdPreserved) {
+          staleMtdPreservedCount += 1;
+        }
+
+        return {
+          updateOne: {
+            filter: {
+              backstage_creator_id: document.backstage_creator_id,
+              snapshot_date_key: document.snapshot_date_key,
+            },
+            update: [{ $set: setFields }],
+            upsert: true,
           },
-          update: { $set: document },
-          upsert: true,
-        },
-      })
+        };
+      }
     );
 
     const result = await collection.bulkWrite(operations, { ordered: false });
     upsertedCount += result.upsertedCount + result.modifiedCount + result.matchedCount;
   }
 
-  return upsertedCount;
+  return { upsertedCount, staleMtdPreservedCount };
 }
 
 async function gathererMongoPublishRecordImportRun(
@@ -170,6 +240,7 @@ export async function publishCreatorsToMongo(
 ): Promise<GathererMongoPublishResult> {
   const mongoWrittenAt = new Date().toISOString();
   const snapshotDateKey = gathererFormatDateKeyInTimezone(config.timezone, new Date(mongoWrittenAt));
+  const currentMonthKey = snapshotDateKey.slice(0, 7);
   const emptyResult: GathererMongoPublishResult = {
     published: false,
     creatorsUpserted: 0,
@@ -211,11 +282,14 @@ export async function publishCreatorsToMongo(
   }
 
   try {
-    const creatorsUpserted = await gathererMongoPublishUpsertCreators(
+    const creatorUpsertResult = await gathererMongoPublishUpsertCreators(
       creatorDocuments,
       summary.runId,
-      mongoWrittenAt
+      mongoWrittenAt,
+      currentMonthKey,
+      config.gathererMongoSuppressStaleMtdOnRosterPublish
     );
+    const creatorsUpserted = creatorUpsertResult.upsertedCount;
 
     // Runs only after the upsert above resolved without throwing, so every creator on the
     // active roster is guaranteed to carry this run's membership stamp before the sweep
@@ -227,7 +301,12 @@ export async function publishCreatorsToMongo(
       gathererRosterMembershipBuildDeparturesFromExclusions(excludedCreators)
     );
 
-    const snapshotsInserted = await gathererMongoPublishUpsertPerformanceSnapshots(snapshotDocuments);
+    const snapshotUpsertResult = await gathererMongoPublishUpsertPerformanceSnapshots(
+      snapshotDocuments,
+      currentMonthKey,
+      config.gathererMongoSuppressStaleMtdOnRosterPublish
+    );
+    const snapshotsInserted = snapshotUpsertResult.upsertedCount;
     await gathererMongoPublishRecordImportRun(summary, true, mongoWrittenAt);
 
     logInfo(
@@ -237,6 +316,10 @@ export async function publishCreatorsToMongo(
         creatorsSkipped,
         database: config.mongodbDbName,
         snapshotDateKey,
+        currentMonthKey,
+        staleMtdPreservedOnCreators: creatorUpsertResult.staleMtdPreservedCount,
+        staleMtdPreservedOnSnapshots: snapshotUpsertResult.staleMtdPreservedCount,
+        suppressStaleMtdOnRosterPublish: config.gathererMongoSuppressStaleMtdOnRosterPublish,
         rosterMembershipSweepSkippedReason: rosterMembershipSweep.skippedReason,
       }
     );

@@ -47,9 +47,7 @@ function applyDipSheetEnrichmentMergeFields(
 ): CombinedCreatorRecord {
   return {
     ...creator,
-    prior_month_diamonds: row.prior_month_diamonds ?? creator.prior_month_diamonds,
-    prior_month_valid_days: row.prior_month_valid_days ?? creator.prior_month_valid_days,
-    prior_month_hours: row.prior_month_hours ?? creator.prior_month_hours,
+    // prior_month_* performance metrics come only from Backstage Creator Data export — never DIP.
     last_month_tier_index: row.last_month_tier_index ?? creator.last_month_tier_index,
     current_tier_index: row.current_tier_index ?? creator.current_tier_index,
     tier_rank_status: row.tier_rank_status ?? creator.tier_rank_status,

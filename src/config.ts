@@ -121,6 +121,21 @@ export interface GathererConfig {
   gathererSnapshotHistoryImportTime: string;
   /** Combined Creators tab name in daily Drive archive spreadsheets. */
   gathererSnapshotHistoryCombinedTab: string;
+  /**
+   * When true (default), nightly snapshot import re-imports every archive day in the current month
+   * so daily deltas re-chain from Drive cumulatives instead of staying frozen at first import.
+   */
+  gathererSnapshotHistoryRederiveCurrentMonthOnScheduled: boolean;
+  /**
+   * When true (default), batch snapshot import prefers the prior calendar day's archive cumulative
+   * over Mongo when consecutive archives are processed in the same run.
+   */
+  gathererSnapshotHistoryDerivePriorFromArchiveChain: boolean;
+  /**
+   * When true (default), roster + daily performance snapshot publish preserves existing MTD totals
+   * when performance_data_period still describes the prior calendar month (month rollover).
+   */
+  gathererMongoSuppressStaleMtdOnRosterPublish: boolean;
   gathererFailureEmailEnabled: boolean;
   gathererFailureEmailTo: string;
   gathererFailureEmailFrom: string;
@@ -317,6 +332,12 @@ export function loadGathererConfig(): GathererConfig {
       process.env.GATHERER_SNAPSHOT_HISTORY_IMPORT_TIME ?? "00:30",
     gathererSnapshotHistoryCombinedTab:
       process.env.GATHERER_SNAPSHOT_HISTORY_COMBINED_TAB ?? "Combined Creators",
+    gathererSnapshotHistoryRederiveCurrentMonthOnScheduled:
+      process.env.GATHERER_SNAPSHOT_HISTORY_REDERIVE_CURRENT_MONTH_ON_SCHEDULED !== "false",
+    gathererSnapshotHistoryDerivePriorFromArchiveChain:
+      process.env.GATHERER_SNAPSHOT_HISTORY_DERIVE_PRIOR_FROM_ARCHIVE_CHAIN !== "false",
+    gathererMongoSuppressStaleMtdOnRosterPublish:
+      process.env.GATHERER_MONGO_SUPPRESS_STALE_MTD_ON_ROSTER_PUBLISH !== "false",
     gathererFailureEmailEnabled: process.env.GATHERER_FAILURE_EMAIL_ENABLED !== "false",
     gathererFailureEmailTo:
       process.env.GATHERER_FAILURE_EMAIL_TO ?? "kdoyle@infinitumimagery.com",

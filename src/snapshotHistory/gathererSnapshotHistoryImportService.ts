@@ -2,7 +2,7 @@
  * Filename: gathererSnapshotHistoryImportService.ts
  * Purpose: Import Drive daily archives into creator_daily_snapshots (Priority 1 history engine).
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-15
+ * Last Modified: 2026-08-08
  * Dependencies: mongodb, snapshot history modules, gathererMongoIndexBootstrap
  * Platform Compatibility: Node.js 18+
  */
@@ -35,6 +35,13 @@ import {
 } from "./gathererSnapshotHistoryDriveScanner";
 import { gathererSnapshotHistoryReadCombinedCreatorsFromSpreadsheet } from "./gathererSnapshotHistorySheetReader";
 import { gathererSnapshotMonthlyGoalsUpsertFromCreators } from "./gathererSnapshotMonthlyGoalsService";
+import {
+  gathererSnapshotHistoryArchivePriorChainExtractCumulative,
+  gathererSnapshotHistoryArchivePriorChainRecordArchiveCumulatives,
+  gathererSnapshotHistoryArchivePriorChainResolvePrior,
+  GathererSnapshotHistoryArchiveChain,
+  GathererSnapshotHistoryMongoPriorLookup,
+} from "./gathererSnapshotHistoryArchivePriorChain";
 
 const GATHERER_SNAPSHOT_HISTORY_IMPORT_SERVICE_SOURCE = "gathererSnapshotHistoryImportService";
 
@@ -52,6 +59,18 @@ export interface GathererSnapshotHistoryImportOptions {
   forceReimport?: boolean;
   /** Skip dates already imported unless forceReimport. Default false for backfill, true for scheduled single-day. */
   skipExistingDates?: boolean;
+  /**
+   * When true (default), consecutive-day delta priors prefer the prior archive file processed in
+   * this batch over MongoDB. Backwards compatible: set false to restore legacy Mongo-only priors.
+   */
+  derivePriorFromArchiveChain?: boolean;
+  /**
+   * When set (YYYY-MM), dates in this month are always re-imported even if rows already exist.
+   * Used by the scheduled job to re-chain the open month nightly without reprocessing all history.
+   */
+  rederiveMonthKey?: string;
+  /** When set (YYYY-MM), restrict this run to archive dates in that calendar month only. */
+  importMonthKey?: string;
 }
 
 export interface GathererSnapshotHistoryImportResult {
@@ -119,17 +138,12 @@ function gathererSnapshotHistoryBuildImportRunId(trigger: string): string {
 
 // MARK: Prior Snapshot Lookup
 
-interface GathererSnapshotHistoryPriorLookup {
-  metrics: GathererSnapshotCumulativeMetrics;
-  priorSnapshotDate: string;
-}
-
 async function gathererSnapshotHistoryLoadPriorCumulativeMap(
   config: GathererConfig,
   snapshotDate: string,
   creatorIds: string[]
-): Promise<Map<string, GathererSnapshotHistoryPriorLookup>> {
-  const map = new Map<string, GathererSnapshotHistoryPriorLookup>();
+): Promise<Map<string, GathererSnapshotHistoryMongoPriorLookup>> {
+  const map = new Map<string, GathererSnapshotHistoryMongoPriorLookup>();
 
   if (creatorIds.length === 0) {
     return map;
@@ -201,11 +215,21 @@ function gathererSnapshotHistoryBuildSnapshotDocuments(input: {
   archive: GathererSnapshotHistoryArchiveEntry;
   importRunId: string;
   importedAt: string;
-  priorCumulativeByCreator: Map<string, GathererSnapshotHistoryPriorLookup>;
+  priorCumulativeByCreator: Map<string, GathererSnapshotHistoryMongoPriorLookup>;
+  archiveChain: GathererSnapshotHistoryArchiveChain;
+  derivePriorFromArchiveChain: boolean;
   defaultRegion: string;
 }): GathererCreatorDailySnapshotDocument[] {
-  const { creators, archive, importRunId, importedAt, priorCumulativeByCreator, defaultRegion } =
-    input;
+  const {
+    creators,
+    archive,
+    importRunId,
+    importedAt,
+    priorCumulativeByCreator,
+    archiveChain,
+    derivePriorFromArchiveChain,
+    defaultRegion,
+  } = input;
 
   const documents: GathererCreatorDailySnapshotDocument[] = [];
 
@@ -216,13 +240,24 @@ function gathererSnapshotHistoryBuildSnapshotDocuments(input: {
     }
 
     const cumulative = gathererSnapshotHistoryExtractCumulative(creator);
-    const priorLookup = priorCumulativeByCreator.get(creatorId) ?? null;
-    const prior = priorLookup?.metrics ?? null;
+    const mongoPriorLookup = priorCumulativeByCreator.get(creatorId);
+    const resolvedPrior = derivePriorFromArchiveChain
+      ? gathererSnapshotHistoryArchivePriorChainResolvePrior({
+          creatorId,
+          snapshotDate: archive.snapshotDate,
+          archiveChain,
+          mongoPrior: mongoPriorLookup,
+        })
+      : {
+          prior: mongoPriorLookup?.metrics ?? null,
+          priorSnapshotDate: mongoPriorLookup?.priorSnapshotDate ?? null,
+          priorSource: mongoPriorLookup ? ("mongo" as const) : ("none" as const),
+        };
     const derived = gathererSnapshotDeltaEngineDeriveDailyMetrics({
       snapshotDate: archive.snapshotDate,
       current: cumulative,
-      prior,
-      priorSnapshotDate: priorLookup?.priorSnapshotDate ?? null,
+      prior: resolvedPrior.prior,
+      priorSnapshotDate: resolvedPrior.priorSnapshotDate,
     });
 
     documents.push({
@@ -298,11 +333,42 @@ async function gathererSnapshotHistoryUpsertSnapshots(
 
 // MARK: Import Single Date
 
+function gathererSnapshotHistoryShouldForceReimportDate(
+  snapshotDate: string,
+  options: GathererSnapshotHistoryImportOptions
+): boolean {
+  if (options.forceReimport === true) {
+    return true;
+  }
+  const monthKey = String(options.rederiveMonthKey ?? "").trim();
+  return monthKey.length > 0 && snapshotDate.startsWith(`${monthKey}-`);
+}
+
+/**
+ * Nightly scheduled import scope: re-chain every archive day in the open month through yesterday,
+ * and always include yesterday itself on month rollover (e.g. Aug 31 when today is Sept 1).
+ */
+export function gathererSnapshotHistoryFilterEntriesForScheduledRederive(
+  entries: GathererSnapshotHistoryArchiveEntry[],
+  input: { importThroughDate: string; rederiveMonthKey: string }
+): GathererSnapshotHistoryArchiveEntry[] {
+  const monthPrefix = `${input.rederiveMonthKey.trim()}-`;
+  const throughDate = input.importThroughDate.trim();
+
+  return entries.filter(
+    (entry) =>
+      entry.snapshotDate <= throughDate &&
+      (entry.snapshotDate.startsWith(monthPrefix) || entry.snapshotDate === throughDate)
+  );
+}
+
 async function gathererSnapshotHistoryImportArchiveEntry(
   config: GathererConfig,
   archive: GathererSnapshotHistoryArchiveEntry,
   importRunId: string,
-  importedAt: string
+  importedAt: string,
+  archiveChain: GathererSnapshotHistoryArchiveChain,
+  derivePriorFromArchiveChain: boolean
 ): Promise<{ upserted: number; skipped: number }> {
   const creators = await gathererSnapshotHistoryReadCombinedCreatorsFromSpreadsheet(
     config,
@@ -326,10 +392,29 @@ async function gathererSnapshotHistoryImportArchiveEntry(
     importRunId,
     importedAt,
     priorCumulativeByCreator,
+    archiveChain,
+    derivePriorFromArchiveChain,
     defaultRegion: config.backstageAgencyRegion,
   });
 
   const upserted = await gathererSnapshotHistoryUpsertSnapshots(config, documents);
+
+  const cumulativeByCreator = new Map<string, GathererSnapshotCumulativeMetrics>();
+  for (const creator of creators) {
+    const creatorId = gathererSnapshotHistoryResolveCreatorId(creator);
+    if (!creatorId) {
+      continue;
+    }
+    cumulativeByCreator.set(
+      creatorId,
+      gathererSnapshotHistoryArchivePriorChainExtractCumulative(creator)
+    );
+  }
+  gathererSnapshotHistoryArchivePriorChainRecordArchiveCumulatives({
+    archiveChain,
+    snapshotDate: archive.snapshotDate,
+    cumulativeByCreator,
+  });
 
   const month = gathererSnapshotDeltaEngineSnapshotMonth(archive.snapshotDate);
   await gathererSnapshotMonthlyGoalsUpsertFromCreators(config, creators, month, importedAt);
@@ -366,21 +451,46 @@ export async function gathererSnapshotHistoryRunImport(
 
   if (options.snapshotDate) {
     entries = entries.filter((entry) => entry.snapshotDate === options.snapshotDate);
-  } else if (options.importThroughDate) {
-    entries = entries.filter((entry) => entry.snapshotDate <= options.importThroughDate!);
+  } else {
+    if (options.importMonthKey) {
+      const monthPrefix = `${options.importMonthKey.trim()}-`;
+      entries = entries.filter((entry) => entry.snapshotDate.startsWith(monthPrefix));
+    }
+    if (options.importThroughDate) {
+      entries = entries.filter((entry) => entry.snapshotDate <= options.importThroughDate!);
+    }
+    if (
+      options.trigger === "scheduled" &&
+      options.rederiveMonthKey &&
+      options.importThroughDate &&
+      !options.importMonthKey
+    ) {
+      entries = gathererSnapshotHistoryFilterEntriesForScheduledRederive(entries, {
+        importThroughDate: options.importThroughDate,
+        rederiveMonthKey: options.rederiveMonthKey,
+      });
+    }
   }
 
   filesScanned = entries.length;
 
+  const derivePriorFromArchiveChain = options.derivePriorFromArchiveChain !== false;
+  const archiveChain: GathererSnapshotHistoryArchiveChain = new Map();
+
   logInfo(
     `Starting snapshot history import (${options.trigger}) — ${entries.length} archive file(s)`,
     GATHERER_SNAPSHOT_HISTORY_IMPORT_SERVICE_SOURCE,
-    { importRunId }
+    {
+      importRunId,
+      derivePriorFromArchiveChain,
+      rederiveMonthKey: options.rederiveMonthKey ?? null,
+    }
   );
 
   for (const archive of entries) {
     try {
-      if (options.skipExistingDates && options.forceReimport !== true) {
+      const forceReimportDate = gathererSnapshotHistoryShouldForceReimportDate(archive.snapshotDate, options);
+      if (options.skipExistingDates && !forceReimportDate) {
         const exists = await gathererSnapshotHistoryHasSnapshotsForDate(config, archive.snapshotDate);
         if (exists) {
           snapshotsSkipped += 1;
@@ -396,7 +506,9 @@ export async function gathererSnapshotHistoryRunImport(
         config,
         archive,
         importRunId,
-        new Date().toISOString()
+        new Date().toISOString(),
+        archiveChain,
+        derivePriorFromArchiveChain
       );
 
       snapshotsUpserted += result.upserted;

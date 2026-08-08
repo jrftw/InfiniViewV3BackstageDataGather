@@ -2,7 +2,7 @@
  * Filename: runSnapshotHistoryImportJob.ts
  * Purpose: CLI entry for Priority 1 Daily Snapshot History Engine import.
  * Author: Kevin Doyle Jr. / Infinitum Imagery LLC
- * Last Modified: 2026-07-15
+ * Last Modified: 2026-08-08
  * Dependencies: config, gathererSnapshotHistoryImportService
  * Platform Compatibility: Node.js 18+
  */
@@ -10,6 +10,7 @@
 import { loadGathererConfig } from "../config";
 import { gathererSnapshotHistoryRunImport } from "../snapshotHistory/gathererSnapshotHistoryImportService";
 import { logError, logInfo } from "../logging/logger";
+import { gathererFormatDateKeyInTimezone } from "../utils/dates";
 
 const GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE = "runSnapshotHistoryImportJob";
 
@@ -36,6 +37,11 @@ export function gathererRunSnapshotHistoryImportJobYesterdayDateKey(timezone: st
   return `${year}-${month}-${day}`;
 }
 
+/** Current YYYY-MM month key in the Gatherer business timezone. */
+export function gathererRunSnapshotHistoryImportJobCurrentMonthKey(timezone: string): string {
+  return gathererFormatDateKeyInTimezone(timezone, new Date()).slice(0, 7);
+}
+
 // MARK: CLI Args
 
 function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
@@ -44,12 +50,15 @@ function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
   skipExistingDates: boolean;
   forceReimport: boolean;
   importThroughDate?: string;
+  /** When set (YYYY-MM), only import archive dates in that calendar month. */
+  importMonthKey?: string;
 } {
   let trigger: "scheduled" | "backfill" | "manual" = "manual";
   let snapshotDate: string | undefined;
   let skipExistingDates = false;
   let forceReimport = false;
   let importThroughDate: string | undefined;
+  let importMonthKey: string | undefined;
 
   for (const arg of argv) {
     if (arg === "--backfill") {
@@ -64,6 +73,8 @@ function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
       skipExistingDates = false;
     } else if (arg.startsWith("--date=")) {
       snapshotDate = arg.slice("--date=".length).trim();
+    } else if (arg.startsWith("--month=")) {
+      importMonthKey = arg.slice("--month=".length).trim();
     } else if (arg === "--skip-existing") {
       skipExistingDates = true;
     }
@@ -74,7 +85,7 @@ function gathererRunSnapshotHistoryImportJobParseArgs(argv: string[]): {
     importThroughDate = gathererRunSnapshotHistoryImportJobYesterdayDateKey(config.timezone);
   }
 
-  return { trigger, snapshotDate, skipExistingDates, forceReimport, importThroughDate };
+  return { trigger, snapshotDate, skipExistingDates, forceReimport, importThroughDate, importMonthKey };
 }
 
 // MARK: Main
@@ -83,7 +94,15 @@ export async function runSnapshotHistoryImportJob(argv: string[] = process.argv.
   const config = loadGathererConfig();
   const args = gathererRunSnapshotHistoryImportJobParseArgs(argv);
 
-  logInfo("Snapshot history import job starting", GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE, args);
+  const scheduledRederiveMonthKey =
+    args.trigger === "scheduled" && config.gathererSnapshotHistoryRederiveCurrentMonthOnScheduled
+      ? gathererRunSnapshotHistoryImportJobCurrentMonthKey(config.timezone)
+      : undefined;
+
+  logInfo("Snapshot history import job starting", GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE, {
+    ...args,
+    scheduledRederiveMonthKey: scheduledRederiveMonthKey ?? null,
+  });
 
   const result = await gathererSnapshotHistoryRunImport(config, {
     trigger: args.trigger,
@@ -91,6 +110,9 @@ export async function runSnapshotHistoryImportJob(argv: string[] = process.argv.
     skipExistingDates: args.skipExistingDates,
     forceReimport: args.forceReimport || !args.skipExistingDates,
     importThroughDate: args.importThroughDate,
+    importMonthKey: args.importMonthKey,
+    derivePriorFromArchiveChain: config.gathererSnapshotHistoryDerivePriorFromArchiveChain,
+    rederiveMonthKey: scheduledRederiveMonthKey,
   });
 
   logInfo("Snapshot history import job finished", GATHERER_RUN_SNAPSHOT_HISTORY_IMPORT_JOB_SOURCE, {

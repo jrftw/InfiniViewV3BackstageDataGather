@@ -163,10 +163,76 @@ function mergeGetStringFromDefinition(
 const GATHERER_MERGE_CREATOR_DATA_TOTAL_DIAMONDS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[0];
 const GATHERER_MERGE_CREATOR_DATA_LIVE_DURATION_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[1];
 const GATHERER_MERGE_CREATOR_DATA_VALID_DAYS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[2];
-const GATHERER_MERGE_CREATOR_DATA_DATA_PERIOD_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[3];
+const GATHERER_MERGE_PRIOR_MONTH_DIAMONDS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[3];
+const GATHERER_MERGE_PRIOR_MONTH_HOURS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[4];
+const GATHERER_MERGE_PRIOR_MONTH_VALID_DAYS_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[5];
+const GATHERER_MERGE_CREATOR_DATA_DATA_PERIOD_DEF = GATHERER_BACKSTAGE_CREATOR_DATA_FIELD_ALIASES[6];
 const GATHERER_MERGE_MANAGE_DIAMONDS_L30D_DEF = GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES[0];
 const GATHERER_MERGE_MANAGE_LIVE_DURATION_L30D_DEF = GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES[1];
 const GATHERER_MERGE_MANAGE_VALID_DAYS_L30D_DEF = GATHERER_BACKSTAGE_MANAGE_CREATORS_FIELD_ALIASES[2];
+
+function mergeFormatStoredCount(value: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) {
+    return null;
+  }
+  return String(Math.round(value));
+}
+
+function mergeFormatStoredHours(value: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) {
+    return null;
+  }
+  return String(Math.round(value * 100) / 100);
+}
+
+/**
+ * Rejects stale or mis-mapped prior-month values (e.g. L30D hours "52.9K" stored as diamonds).
+ * Backstage Creator Data owns prior month; bad values are cleared so API snapshot fill can apply.
+ */
+function mergeSanitizePriorMonthFields(record: CombinedCreatorRecord): void {
+  const priorDiamonds = normalizeBackstageDiamonds(record.prior_month_diamonds);
+  const priorHours = normalizeBackstageDurationHours(record.prior_month_hours);
+  const priorValidDays = normalizeBackstageDays(record.prior_month_valid_days);
+  const l30dDiamonds = record.diamonds_l30d;
+  const l30dHours = record.live_duration_l30d_hours;
+  const l30dValidDays = record.valid_live_days_l30d;
+  const mtdDiamonds = record.total_diamonds;
+
+  if (priorDiamonds != null && l30dHours != null && l30dHours > 0) {
+    const l30dHoursAsCompactK = Math.round(l30dHours * 1000);
+    if (
+      Math.abs(priorDiamonds - l30dHoursAsCompactK) / Math.max(priorDiamonds, 1) <= 0.08
+    ) {
+      record.prior_month_diamonds = null;
+      record.warnings.push("prior_month_diamonds_rejected_l30d_hours_compact_k");
+    }
+  }
+
+  if (priorDiamonds != null && mtdDiamonds != null && mtdDiamonds > 0 && l30dDiamonds != null) {
+    const staleHighThreshold = Math.max(mtdDiamonds * 2.5, l30dDiamonds * 1.25);
+    if (priorDiamonds > staleHighThreshold) {
+      record.prior_month_diamonds = null;
+      record.warnings.push("prior_month_diamonds_rejected_stale_high_outlier");
+    }
+  }
+
+  if (priorHours != null && l30dHours != null && l30dHours > 0) {
+    if (priorHours > l30dHours * 1.35) {
+      record.prior_month_hours = null;
+      record.warnings.push("prior_month_hours_rejected_above_l30d");
+    }
+  }
+
+  if (priorValidDays != null) {
+    if (priorValidDays > 31) {
+      record.prior_month_valid_days = null;
+      record.warnings.push("prior_month_valid_days_rejected_above_calendar_max");
+    } else if (l30dValidDays != null && priorValidDays > l30dValidDays + 12) {
+      record.prior_month_valid_days = null;
+      record.warnings.push("prior_month_valid_days_rejected_above_l30d");
+    }
+  }
+}
 
 function mergeMapPerformanceRow(
   row: ParsedBackstageRow,
@@ -241,9 +307,15 @@ function mergeMapPerformanceRow(
       mergeGetString(row, "new_live_creators") ??
       deriveNewLiveCreatorThisMonthFromJoinedTime(joinedTime, timezone, referenceDate),
     ...crmEnrichmentBuildNullDefaults(),
-    prior_month_diamonds: mergeGetString(row, "diamonds_last_month"),
-    prior_month_valid_days: mergeGetString(row, "valid_go_live_days_last_month"),
-    prior_month_hours: mergeGetString(row, "live_duration_hours_last_month"),
+    prior_month_diamonds: mergeFormatStoredCount(
+      mergeGetDiamondsFromDefinition(row, GATHERER_MERGE_PRIOR_MONTH_DIAMONDS_DEF)
+    ),
+    prior_month_valid_days: mergeFormatStoredCount(
+      mergeGetDaysFromDefinition(row, GATHERER_MERGE_PRIOR_MONTH_VALID_DAYS_DEF)
+    ),
+    prior_month_hours: mergeFormatStoredHours(
+      mergeGetDurationHoursFromDefinition(row, GATHERER_MERGE_PRIOR_MONTH_HOURS_DEF)
+    ),
     agent_email: mergeGetString(row, "creator_network_manager"),
     last_month_tier_index: null,
     current_tier_index: null,
@@ -319,6 +391,7 @@ function mergeApplyManagementFields(record: CombinedCreatorRecord, row: ParsedBa
   record.subscription_status = mergeGetString(row, "subscription_status") ?? record.subscription_status;
   record.invitation_type = mergeGetString(row, "invitation_type") ?? record.invitation_type;
   record.agent_email = mergeGetString(row, "creator_network_manager") ?? record.agent_email;
+  mergeSanitizePriorMonthFields(record);
 }
 
 // MARK: - Merge Engine
